@@ -1,0 +1,75 @@
+@import "tailwindcss";
+
+/* Pulled from the shader's own colour ramp so the UI and the background are
+   one system rather than a layer on top of a layer. */
+@theme {
+  --color-abyss: #001219;
+  --color-deep: #005f73;
+  --color-mint: #94d2bd;
+  --color-sand: #e9d8a6;
+  --color-clay: #bb8b58;
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-instrument-serif);
+}
+
+html {
+  background: var(--color-abyss);
+  color-scheme: dark;
+}
+
+body {
+  color: var(--color-sand);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--color-mint);
+  color: var(--color-abyss);
+}
+
+/* One visible focus style everywhere, since the whole UI is keyboard-reachable. */
+:focus-visible {
+  outline: 2px solid var(--color-mint);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.rise {
+  animation: rise 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgb(148 210 189 / 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 14px rgb(148 210 189 / 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgb(148 210 189 / 0);
+  }
+}
+
+.pulse-ring {
+  animation: pulse-ring 1.6s ease-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise,
+  .pulse-ring {
+    animation: none;
+  }
+}
