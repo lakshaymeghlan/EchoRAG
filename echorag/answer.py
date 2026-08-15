@@ -9,7 +9,7 @@ import re
 
 import numpy as np
 
-from echorag import embed, guards, harness, retrieve
+from echorag import embed, guards, harness, tools
 from echorag.index import split_sentences
 from echorag.schemas import Abstention, Answer, Evidence
 
@@ -24,6 +24,11 @@ def _source_text(query: str, ev: Evidence) -> str:
 _WORD = re.compile(r"\w+", re.UNICODE)
 
 SHORTLIST = 3  # sentences worth paying to embed
+
+# Below this top-1 cosine the first search is judged weak enough to widen.
+# Sits just under the measured in-corpus minimum (EN 0.842 / HI 0.813).
+WIDEN_BELOW = 0.78
+WIDEN_MIN_BUDGET_MS = 130  # a second hop plus the answer stage must both fit
 
 
 def _lexical_scores(query: str, sentences: list[str]) -> list[float]:
@@ -106,7 +111,9 @@ async def answer_question(query: str, budget_ms: float = harness.BUDGET_MS) -> A
     d = harness.Deadline(budget_ms)
     spans: dict[str, float] = {}
 
-    for gate in (guards.check_input, guards.check_safety):
+    # All three are query-only, so they run before retrieval — an unsafe or
+    # unanswerable transcript never costs a search.
+    for gate in (guards.check_input, guards.check_safety, guards.check_answerable):
         if (stop := gate(query)) is not None:
             stop.spans = {"total": d.elapsed_ms()}
             return stop
@@ -114,11 +121,31 @@ async def answer_question(query: str, budget_ms: float = harness.BUDGET_MS) -> A
     qvec = embed.encode([query], is_query=True)[0]
     spans["embed"] = d.elapsed_ms()
 
-    evidence, rspans = retrieve.retrieve(query, k=5, qvec=qvec)
-    spans["retrieve"] = rspans["total"]
+    # Retrieval runs as a validated tool call, not a direct function call, so
+    # the same registry serves the rule-driven pipeline and an LLM generator.
+    trace: list[dict] = []
+    t = d.elapsed_ms()
+    call = tools.call("search_corpus", deadline=d, query=query, k=5, widen=False, qvec=qvec)
+    trace.append({"tool": call.name, "ok": call.ok, "ms": round(call.latency_ms, 1)})
+    evidence = call.evidence
+
+    # Second hop: weak evidence and budget left -> widen the view set and retry.
+    # A real multi-step loop, decided by rule here and by the model when a
+    # generator is configured.
+    weak = not evidence or evidence[0].dense_score < WIDEN_BELOW
+    if weak and d.remaining_ms() > WIDEN_MIN_BUDGET_MS:
+        again = tools.call("search_corpus", deadline=d, query=query, k=5, widen=True, qvec=qvec)
+        trace.append({"tool": again.name, "ok": again.ok, "ms": round(again.latency_ms, 1)})
+        if again.ok and again.evidence:
+            best = max(evidence + again.evidence, key=lambda e: e.dense_score, default=None)
+            if best is not None and (not evidence or best.dense_score > evidence[0].dense_score):
+                evidence = again.evidence
+
+    spans["retrieve"] = d.elapsed_ms() - t
 
     if (stop := guards.check_relevance(query, evidence)) is not None:
         stop.spans = {**spans, "total": d.elapsed_ms()}
+        stop.tool_calls = trace
         return stop
 
     t = d.elapsed_ms()
@@ -138,11 +165,14 @@ async def answer_question(query: str, budget_ms: float = harness.BUDGET_MS) -> A
             reason="off_topic",
             message="I don't have anything on that.",
             spans={**spans, "total": d.elapsed_ms()},
+            tool_calls=trace,
         )
 
     if (stop := guards.check_grounding(result, evidence)) is not None:
         stop.spans = {**spans, "total": d.elapsed_ms()}
+        stop.tool_calls = trace
         return stop
 
     result.spans = {**spans, "total": d.elapsed_ms()}
+    result.tool_calls = trace
     return result
