@@ -311,6 +311,45 @@ weighted score-blending because RRF needs no per-view score normalization and is
 when one view returns garbage — the failure mode is "that view contributes nothing",
 not "that view's wild scores swamp everyone else's".
 
+### 5.2 Ablation result — V3 cut, views routed by language (Phase 2)
+
+150 gold-labelled queries per language, ANN index, warm-up discarded.
+
+| Combination | HI recall@10 | HI MRR | EN recall@10 | EN MRR | P50 |
+|---|---|---|---|---|---|
+| V1 only | 0.633 | 0.384 | 0.967 | **0.702** | 20.5 ms |
+| V1+V5 | 0.667 | 0.378 | 0.973 | 0.595 | 22 ms |
+| V1+V3+V5 | 0.667 | 0.371 | 0.980 | 0.634 | 31 ms |
+| **V1+V2** | 0.760 | **0.462** | 0.947 | 0.557 | 26 ms |
+| **V1+V2+V5** | **0.767** | 0.448 | 0.960 | 0.559 | 29 ms |
+| all views (incl. V3) | 0.753 | 0.433 | 0.980 | 0.603 | 38 ms |
+
+**V3 (sentence-window) is cut.** Adding it to V1+V2+V5 lowers Hindi recall *and* MRR while
+costing 9 ms — negative on every axis. The cause is in the Phase 1 data: passages are
+`p50 50 words` ≈ 3.5 sentences, so a `window=1` chunk spans ~85% of its own parent. We were
+indexing 67,597 near-duplicates of V1 that competed with the passages they came from.
+Small-to-big is a long-document technique; these passages are too short to split.
+
+Consequence: **chunks/passage drops 5.50 → 2.0**, so the index shrinks ~63% (10k rows:
+0.84 GB → ~0.31 GB) and D6 could be revisited upward if we want more corpus.
+
+**Views are routed by query language**, because V2 helps Hindi (+12.7 recall) and *hurts*
+English (−2.0 — Hindi text is noise for an English query):
+
+| Query language | Views | Rationale |
+|---|---|---|
+| Indic | V1 + V2 + V5 | V2 is the single biggest win available |
+| English | V1 + V5 | V2 adds noise; V1 alone has the best MRR |
+
+**V5 (BM25) is kept despite costing MRR** in both languages. The eval set is built from
+`is_selected` on natural-language MS MARCO questions, which under-represents the exact-token
+queries (names, model numbers, dates) BM25 exists for. Cutting it on this evidence would be
+overfitting to the eval. Revisit in Phase 4 with a per-`query_type` breakdown.
+
+**MRR is the metric we optimize, not recall@10.** The answer stage reads the top 5 and the
+extractive path uses the top 1 — a gold passage sitting at rank 9 is not usable. Where the
+two metrics disagree, MRR wins.
+
 **Ablation is mandatory, not optional.** `bench/ablation.py` reports recall@10 and MRR@10
 for: V1 alone, V1+V5, V1+V3+V5, and all six. If a view does not earn its latency, **we cut
 it and say so in the writeup.** A view kept without evidence is decoration; a view cut with
@@ -396,6 +435,37 @@ returning a typed `Abstention` with a machine-readable reason.
 | **G2 Safety** | pre-retrieval | Rule-based deny list + PII pattern match over a small, auditable category set | Unsafe or out-of-policy request → refuse, do not retrieve |
 | **G3 Off-topic** | post-retrieval | **The retriever is the OOD detector.** If top-1 fused score < τ, nothing in the corpus is relevant | `"That's not in the knowledge base"` |
 | **G4 Grounding** | post-generation | Token-overlap ratio between answer and cited passage, **plus** the citation must be a passage we actually retrieved | Overlap below threshold or hallucinated citation → fall back to extractive; if that also fails → abstain |
+
+### 9.-1 G3 as designed does not work (Phase 4 measurement)
+
+**The premise "the retriever is the OOD detector" is false for this corpus.** Measured:
+
+| | in-corpus | off-topic |
+|---|---|---|
+| English, top-1 cosine | min 0.842 · p10 0.870 · p50 0.904 | p50 0.857 · **max 0.887** |
+| Hindi, top-1 cosine | min 0.813 · p10 0.845 · p50 0.888 | p50 0.864 · **max 0.891** |
+
+The distributions overlap almost entirely — off-topic scores sit *inside* the in-corpus
+range. Best-F1 τ still answers 4/10 off-topic (EN) and 8/8 (HI). A score-margin signal
+(top-1 minus the mean of 2..10) was tested as an alternative and separates no better.
+
+**Why:** MS MARCO is a broad web crawl. "What is my bank account balance" genuinely
+retrieves passages about bank balances. The queries we called off-topic are not
+out-of-domain — they are **unanswerable**: they need personal data, live data, or an
+action. That is an *intent* property of the query, not a *distance* property of the corpus,
+and no retrieval score can carry it.
+
+**Also a bug in the calibration itself:** the F1 sweep ran 120 positives against 8–10
+negatives. Under that imbalance "always answer" is near-optimal, so the objective actively
+rewarded never abstaining. Any future sweep must use balanced classes and weight the
+dangerous error (answering the unanswerable) above the annoying one (refusing the
+answerable).
+
+**Redesign, to build:** replace the score threshold with a cheap intent gate at G1 —
+first-person possessives (`my`, `मेरे`), live-time references (`right now`, `today`,
+`अभी`), and imperative actions (`send`, `play`, `book`, `भेजो`, `चलाओ`) mark a query as
+unanswerable from a static corpus regardless of what it retrieves. Keep a *low* absolute
+floor (≈0.75) purely to catch nonsense strings, not as the primary gate.
 
 ### 9.0 Measured on day 1 — two facts that constrain τ
 
