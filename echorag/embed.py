@@ -9,6 +9,7 @@ import numpy as np
 
 MODEL_NAME = "intfloat/multilingual-e5-small"
 DIM = 384
+MAX_SEQ_LEN = 192
 
 _model = None
 
@@ -19,6 +20,10 @@ def _get_model():
         from sentence_transformers import SentenceTransformer
 
         _model = SentenceTransformer(MODEL_NAME)
+        # Default is 512. Passages are p50 ~50 words, but Devanagari tokenizes
+        # to roughly 3x English, so long Hindi sentences were hitting the
+        # ceiling and dominating the budget. Capping bounds worst-case cost.
+        _model.max_seq_length = MAX_SEQ_LEN
     return _model
 
 
