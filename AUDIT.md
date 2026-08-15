@@ -184,10 +184,30 @@ structured I/O, deadline propagation and error recovery on its own.
 | D6 | Corpus scope | **10k rows ≈ 100k passages** (0.55M chunks, ~0.84 GB fp32), Hindi + English; more languages are a stretch | Revised after measurement — see §D6.1. Fits a small box in fp32 with no quantization step. 100k passages is a serious corpus, not a toy. | 25k rows (2.11 GB fp32 — needs quantization we don't otherwise need). Full corpus (cannot deploy). |
 | D7 | Language routing | Index the **English passage** as canonical; embed the Indic query into the same space | One index serves 13 languages instead of 13 indices. The dataset gives us parallel English + translated text for free. | Per-language indices (13× memory, 13× build time). Translate query → English first (+150 ms — budget gone). |
 | D8 | Backend | FastAPI + `uvloop`, single process, models preloaded at import | Warm start is non-negotiable at a 200 ms P100. A cold model load inside a request is an instant P100 violation. | Serverless / Lambda (cold starts destroy P100). |
-| D9 | Frontend | One `index.html`, `MediaRecorder` → `POST /ask` | The demo needs a mic button and an answer. A React app is a day we do not have. | Next.js / React (unrequested build step). |
+| D9 | Frontend | **Next.js** in `frontend/`, `MediaRecorder` → `POST /ask` (revised — see D9.1) | Original reason for rejecting it was schedule, and the schedule changed. | Single `index.html` (the original choice; still the fallback if the build stalls). |
 | D10 | Hosting | Render or Fly.io persistent container, warm | Needs a warm process with ~1 GB RAM. HF Spaces sleeps. | Vercel (no persistent process). HF Spaces free tier (cold-sleeps mid-demo). |
 
 ---
+
+### D9.1 — frontend reversed to Next.js (Phase 5)
+
+D9 rejected React/Next.js with the reason *"a day we do not have"*. Phases 0–4 finished on
+day 1 of a 7-day plan that budgeted through Aug 20 for this point, so the schedule argument
+no longer holds. The decision flips on its own stated grounds rather than being overruled.
+
+**Deployment shape:** two services, because they want different things.
+
+| | Where | Why |
+|---|---|---|
+| `frontend/` (Next.js) | Vercel free tier | Static-ish, never sleeps, instant first paint |
+| `echorag/` (FastAPI + 723 MB index) | Render/Fly persistent container | Needs a warm process and disk; free tiers that sleep violate P100 (§11) |
+
+Cost: CORS, and one more thing to keep alive. Mitigation: `NEXT_PUBLIC_API_URL` so the
+frontend points anywhere, and the single-file HTML stays a working fallback if the Next.js
+build becomes a time sink close to the deadline.
+
+**Unchanged:** the SLO is a backend property. The frontend cannot help or hurt T_pipeline —
+it only affects what the judge sees while waiting.
 
 ### D2.1 / D6.1 — corrections from Phase 1 measurement
 
@@ -414,10 +434,22 @@ prompt-in, text-out call". `echorag/harness.py`:
   Path A only. Prevents a vendor outage from turning every request into a timeout wait.
 - **Fallback chain** — `generative → extractive → abstain`. Every step is a valid,
   user-shippable response. There is no path that returns a 500.
-- **Tool call** — one tool, `search_corpus(query, k)`, exposed on the `?deep=1` path (which
-  requires a generator, §2.4) so the model can re-query when the first evidence set is thin.
-  Off by default: a tool round trip is a second hop and cannot live inside 200 ms. Say
-  plainly in the writeup which path it runs on rather than implying it is in the hot path.
+- **Tool calls — live on every request** (`echorag/tools.py`). Retrieval is not called
+  directly; it is dispatched through a registry that validates arguments against a JSON
+  schema, checks the deadline before invoking, retries transient failures, and returns a
+  structured `ToolResult` where errors are values rather than exceptions. The trace is
+  attached to every response, answers and abstentions alike.
+  The same `SCHEMAS` are Anthropic-shaped (`strict: true`) and are handed verbatim to the
+  model when `ECHORAG_GENERATOR=anthropic`, so the *rules* choosing tools today and the
+  *model* choosing them tomorrow run through one code path — not a capability that only
+  exists when a key is present.
+  **Second hop, measured:** when evidence is weak or the first call fails, the pipeline
+  re-calls `search_corpus` with a deeper candidate pool, budget permitting. Widening
+  deepens rather than adding views — the ablation measured V2 as noise for English
+  (-2.0 recall), so "search every view" would worsen exactly the queries it aims to rescue.
+  Honest caveat: on in-corpus traffic the weak-evidence trigger fired on **0 of 400**
+  sampled queries, so in practice it is an error-recovery path, not a routine second hop.
+  Cost of the whole tool layer: P50 47.8 -> 50.6 ms.
 - **Per-stage spans** — every stage records `(name, start, end)` into the response's `debug`
   field. This *is* the latency instrumentation; §10 just aggregates it. One mechanism, two
   uses.
@@ -466,6 +498,40 @@ first-person possessives (`my`, `मेरे`), live-time references (`right no
 `अभी`), and imperative actions (`send`, `play`, `book`, `भेजो`, `चलाओ`) mark a query as
 unanswerable from a static corpus regardless of what it retrieves. Keep a *low* absolute
 floor (≈0.75) purely to catch nonsense strings, not as the primary gate.
+
+### 9.1 The redesigned gate, and what it measures (Phase 4 result)
+
+G3 split into two, with intent doing the work the score could not.
+
+| Gate | When | Signal | Measured FP on 6,535 real queries |
+|---|---|---|---|
+| **G3a intent** | before retrieval | possessives (`my`, `मेरे`), imperatives (`send`, `भेजो`), live-time (`right now`, `अभी`) | 0.4% · 0.0% · 0.2% (EN) / 0.8% · 0.0% · 1.9% (HI) |
+| **G3b lexical grounding** | after retrieval | fraction of query words present in the retrieved passages, ASCII only | real min 0.40 vs nonsense max 0.00 |
+| **G3b τ floor** | after retrieval | top-1 cosine, demoted to a backstop (0.78 EN / 0.75 HI) | below the in-corpus minimum, so it never refuses a real question |
+
+Rules rejected on evidence: bare `I`/`me` (0.7% FP, but `how do I …` is the canonical shape
+of an *answerable* query) and `कल` (1.9% FP; means both yesterday and tomorrow).
+
+**End-to-end, balanced classes, real pipeline:**
+
+| | answered | refused | |
+|---|---|---|---|
+| English answerable | 19 | 1 | |
+| English unanswerable | **0** | **20** | 100% caught |
+| Hindi answerable | 15 | 1 | |
+| Hindi unanswerable | 4 | 12 | 75% caught |
+
+Zero dangerous errors in English. The four Hindi misses are all Devanagari nonsense strings.
+
+**Known gap — Devanagari nonsense.** Lexical grounding separates cleanly in ASCII
+(real 0.40–1.00 vs nonsense 0.00) and not at all in Devanagari (real p50 1.00 / min 0.85 vs
+nonsense p50 0.84 / max 0.86). Applying the same rule there would refuse real questions to
+catch nothing, so it is ASCII-gated. Fixing it needs a different signal (script-aware
+tokenization or a vocabulary check), not a different threshold.
+
+**Cost:** none. P100 *improved* 115.8 ms → 82.9 ms, because the query-only gates run before
+retrieval and reject without searching. False-refusal rate on 200 in-corpus queries: 3
+(1.5%), matching the per-rule FP rates above.
 
 ### 9.0 Measured on day 1 — two facts that constrain τ
 
