@@ -1,52 +1,72 @@
-"""Phase 4 exit criterion — fit tau from data, not from feel (AUDIT §9).
+"""Phase 4 exit criterion — does the system know when not to answer? (AUDIT §9)
 
     python -m bench.guardrails
 
-Off-topic detection is a binary classifier: in-corpus queries must be answered,
-off-corpus ones must be refused. We measure both score distributions, sweep the
-threshold, and pick the one with the best F1 — then print the confusion matrix
-so the tradeoff is visible rather than asserted.
+Runs the real pipeline over two balanced sets and prints the confusion matrix.
+Balanced deliberately: an earlier version scored 120 answerable against 8
+unanswerable, and under that imbalance "always answer" was near-optimal, so the
+metric rewarded exactly the failure we are trying to catch.
+
+The two errors are not equal:
+  answering the unanswerable  -> dangerous (confident nonsense)
+  refusing the answerable     -> annoying  (user retries)
 """
 
 import argparse
+import asyncio
+import collections
 import random
 
 import lancedb
 
-from echorag import embed, retrieve
+from echorag.answer import answer_question
 
-# Deliberately outside a web-passage corpus: personal, live, local, or nonsense.
-OFF_TOPIC_EN = [
-    "what is my bank account balance",
-    "what did I have for breakfast yesterday",
-    "send an email to my manager about the delay",
-    "what is the airspeed velocity of an unladen swallow on Jupiter",
-    "gorpling flimwaddle zonk",
-    "what time is my dentist appointment",
-    "should I break up with my girlfriend",
-    "what is the wifi password here",
-    "play the next song on my playlist",
-    "how many pebbles are in my left shoe right now",
-]
-OFF_TOPIC_HI = [
-    "मेरे बैंक खाते में कितने पैसे हैं",
-    "कल मैंने नाश्ते में क्या खाया था",
-    "मेरे मैनेजर को ईमेल भेजो",
-    "यहाँ का वाईफाई पासवर्ड क्या है",
-    "मेरा अगला गाना चलाओ",
-    "क्या मुझे अपनी नौकरी छोड़ देनी चाहिए",
-    "मेरे जूते में कितने पत्थर हैं",
-    "फ्लिमवाडल गोर्पलिंग ज़ोंक",
-]
+# Unanswerable from a static corpus, by category.
+UNANSWERABLE = {
+    "en": [
+        "what is my bank account balance",
+        "what did I have for breakfast yesterday",
+        "when is my dentist appointment",
+        "what is my current heart rate",
+        "how much money is in my wallet",
+        "what is my wifi password",
+        "who is my manager",
+        "send an email to my manager about the delay",
+        "play the next song on my playlist",
+        "book a table for two tonight",
+        "remind me to call the plumber",
+        "order more coffee filters",
+        "what is the weather right now",
+        "what is the stock price today",
+        "who is winning the match currently",
+        "is my train running on time today",
+        "gorpling flimwaddle zonk",
+        "asdfgh qwerty zxcvbn",
+        "blorptastic wuzzle nimbus grack",
+        "xyzzy plugh frotz",
+    ],
+    "hi": [
+        "मेरे बैंक खाते में कितने पैसे हैं",
+        "कल मैंने नाश्ते में क्या खाया था",
+        "मेरी अगली मीटिंग कब है",
+        "मेरा वाईफाई पासवर्ड क्या है",
+        "मेरे मैनेजर कौन हैं",
+        "मेरे मैनेजर को ईमेल भेजो",
+        "अगला गाना चलाओ",
+        "मेरे लिए टेबल बुक करो",
+        "अभी मौसम कैसा है",
+        "अभी बाजार का भाव क्या है",
+        "मुझे याद दिलाओ",
+        "मेरी ट्रेन समय पर है क्या",
+        "फ्लिमवाडल गोर्पलिंग ज़ोंक",
+        "क्ष त्र ज्ञ अफलतू",
+        "ब्लोर्पटास्टिक वुज़ल निंबस",
+        "ज़िज़ीबॉब फ्रॉट्ज़ प्लग",
+    ],
+}
 
 
-def top_score(query: str) -> float:
-    qvec = embed.encode([query], is_query=True)[0]
-    ev, _ = retrieve.retrieve(query, k=1, qvec=qvec)
-    return ev[0].dense_score if ev else 0.0
-
-
-def in_corpus(index_dir: str, n: int, lang: str) -> list[str]:
+def answerable(index_dir: str, n: int, lang: str) -> list[str]:
     rows = lancedb.connect(index_dir).open_table("passages").search().limit(10**9).to_list()
     seen, qs = set(), []
     for r in rows:
@@ -57,48 +77,52 @@ def in_corpus(index_dir: str, n: int, lang: str) -> list[str]:
     return qs[:n]
 
 
-def sweep(pos: list[float], neg: list[float]) -> tuple[float, dict]:
-    """Pick tau maximising F1. Recall here = 'answered a question we could answer'."""
-    best = (0.0, {"f1": -1.0})
-    candidates = sorted(set(round(x, 3) for x in pos + neg))
-    for tau in candidates:
-        tp = sum(s >= tau for s in pos)
-        fn = len(pos) - tp
-        fp = sum(s >= tau for s in neg)
-        tn = len(neg) - fp
-        prec = tp / (tp + fp) if tp + fp else 0.0
-        rec = tp / (tp + fn) if tp + fn else 0.0
-        f1 = 2 * prec * rec / (prec + rec) if prec + rec else 0.0
-        if f1 > best[1]["f1"]:
-            best = (tau, {"f1": f1, "tp": tp, "fn": fn, "fp": fp, "tn": tn})
-    return best
+async def run(queries: list[str]) -> list[tuple[str, str]]:
+    out = []
+    for q in queries:
+        r = await answer_question(q)
+        out.append((q, getattr(r, "reason", "answered")))
+    return out
 
 
-def report(lang: str, index_dir: str, n: int) -> None:
-    pos_q = in_corpus(index_dir, n, lang)
-    neg_q = OFF_TOPIC_HI if lang == "hi" else OFF_TOPIC_EN
+async def report(lang: str, index_dir: str) -> None:
+    neg = UNANSWERABLE[lang]
+    pos = answerable(index_dir, len(neg), lang)  # balanced
 
-    pos = [top_score(q) for q in pos_q]
-    neg = [top_score(q) for q in neg_q]
+    pos_out = await run(pos)
+    neg_out = await run(neg)
 
-    ps, ns = sorted(pos), sorted(neg)
-    print(f"--- {'Hindi' if lang == 'hi' else 'English'} ---")
-    print(f"in-corpus  (n={len(ps)})  min {ps[0]:.3f}  p10 {ps[len(ps) // 10]:.3f}  p50 {ps[len(ps) // 2]:.3f}")
-    print(f"off-topic  (n={len(ns)})  p50 {ns[len(ns) // 2]:.3f}  p90 {ns[int(len(ns) * 0.9)]:.3f}  max {ns[-1]:.3f}")
+    answered_pos = sum(1 for _, r in pos_out if r == "answered")
+    answered_neg = sum(1 for _, r in neg_out if r == "answered")
 
-    tau, m = sweep(pos, neg)
-    print(f"\nbest tau = {tau:.3f}   F1 {m['f1']:.3f}")
-    print("                 predicted answer   predicted abstain")
-    print(f"  in-corpus  {m['tp']:>14}      {m['fn']:>15}")
-    print(f"  off-topic  {m['fp']:>14}      {m['tn']:>15}")
-    print(f"\n  answered off-topic (the dangerous error): {m['fp']}/{len(neg)}")
-    print(f"  refused answerable (the annoying error)  : {m['fn']}/{len(pos)}\n")
+    print(f"--- {'Hindi' if lang == 'hi' else 'English'}  (n={len(pos)} each) ---")
+    print(f"{'':<14}{'answered':>10}{'refused':>10}")
+    print(f"{'answerable':<14}{answered_pos:>10}{len(pos) - answered_pos:>10}")
+    print(f"{'unanswerable':<14}{answered_neg:>10}{len(neg) - answered_neg:>10}")
+    print()
+    print(f"  caught (unanswerable refused) : {len(neg) - answered_neg}/{len(neg)}"
+          f"  = {(len(neg) - answered_neg) / len(neg):.0%}")
+    print(f"  DANGEROUS (answered anyway)   : {answered_neg}/{len(neg)}")
+    print(f"  annoying  (refused a real Q)  : {len(pos) - answered_pos}/{len(pos)}")
+
+    reasons = collections.Counter(r for _, r in neg_out if r != "answered")
+    print(f"  refusal reasons: {dict(reasons)}")
+
+    missed = [q for q, r in neg_out if r == "answered"]
+    if missed:
+        print("  missed:")
+        for q in missed[:6]:
+            print(f"    - {q}")
+    print()
 
 
-if __name__ == "__main__":
+async def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--queries", type=int, default=120)
     ap.add_argument("--index", default="index")
     args = ap.parse_args()
     for lang in ("en", "hi"):
-        report(lang, args.index, args.queries)
+        await report(lang, args.index)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
