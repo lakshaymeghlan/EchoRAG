@@ -177,15 +177,49 @@ structured I/O, deadline propagation and error recovery on its own.
 | # | Decision | Choice | Why | Rejected |
 |---|---|---|---|---|
 | D1 | STT vendor | **Sarvam** `saaras:v3` (`mode="transcribe"`), `saaras:v3-realtime` over WebSocket for the live demo | Corpus queries are Indic. Sarvam covers all 22 scheduled languages + English; ElevenLabs is weaker on Indic. Sub-150 ms TTFT. | ElevenLabs — worse Indic coverage. `saarika:v2.5` — **being deprecated by Sarvam**, do not build on it. |
-| D2 | Embedding model | `intfloat/multilingual-e5-small`, ONNX **int8**, 384-dim | 118M params → ~8–15 ms/query on CPU. Cross-lingual: one shared space for Indic queries and English passages. 384-dim keeps the index small. | BGE-M3 (568M — 5× too slow). OpenAI/Cohere embeddings (network hop inside the budget = instant fail). |
+| D2 | Embedding model | `intfloat/multilingual-e5-small`, 384-dim. **fp32 for now — ONNX int8 deferred** (§D2.1) | Cross-lingual: one shared space for Indic queries and English passages. **Measured 5.2 ms P50 / 7.8 ms P100 in fp32** — 4% of budget, so int8 is not needed for latency. | BGE-M3 (568M — 5× too slow). OpenAI/Cohere embeddings (network hop inside the budget = instant fail). |
 | D3 | Vector store | **LanceDB**, in-process | It is a real vector DB (satisfies the brief literally), but **in-process** — no gRPC hop inside our budget. Ships vector search + BM25 full-text + metadata filtering in one dependency, killing three others. | Qdrant server (+1–3 ms network hop, +1 container). Raw hnswlib (fast, but then we owe our own BM25, metadata store, and persistence). Pinecone (network hop). |
 | D4 | Generation | **Extractive by default — no hosted LLM required.** Optional `generate()` upgrade behind `ECHORAG_GENERATOR` (`none` \| `local` \| `anthropic`), default `none` | MS MARCO answers are spans inside the retrieved passage (§2.4). Zero vendor dependency, zero API keys, zero cost, and the SLO holds by construction. | LLM-always (misses SLO, adds a vendor the corpus doesn't need). Hard-wiring one vendor (a dead key on demo day kills the demo). |
 | D5 | Answer strategy | Deadline-raced dual path (§2.3) | Only design that makes the SLO a code invariant. | LLM-only (misses SLO). Extractive-only (fails req. 5's spirit). |
-| D6 | Corpus scope | **250k passages**, Hindi + English primary; Tamil/Bengali/Marathi as a stretch | Full set is 11.5M rows / 55.6 GB. 250k × 384-dim int8 ≈ **96 MB** — fits a small box with room for the API. Recall characteristics are demonstrable at this size; loading 55 GB proves nothing extra. | Full corpus (cannot deploy). 10k toy subset (judges will read it as a toy). |
+| D6 | Corpus scope | **10k rows ≈ 100k passages** (0.55M chunks, ~0.84 GB fp32), Hindi + English; more languages are a stretch | Revised after measurement — see §D6.1. Fits a small box in fp32 with no quantization step. 100k passages is a serious corpus, not a toy. | 25k rows (2.11 GB fp32 — needs quantization we don't otherwise need). Full corpus (cannot deploy). |
 | D7 | Language routing | Index the **English passage** as canonical; embed the Indic query into the same space | One index serves 13 languages instead of 13 indices. The dataset gives us parallel English + translated text for free. | Per-language indices (13× memory, 13× build time). Translate query → English first (+150 ms — budget gone). |
 | D8 | Backend | FastAPI + `uvloop`, single process, models preloaded at import | Warm start is non-negotiable at a 200 ms P100. A cold model load inside a request is an instant P100 violation. | Serverless / Lambda (cold starts destroy P100). |
 | D9 | Frontend | One `index.html`, `MediaRecorder` → `POST /ask` | The demo needs a mic button and an answer. A React app is a day we do not have. | Next.js / React (unrequested build step). |
 | D10 | Hosting | Render or Fly.io persistent container, warm | Needs a warm process with ~1 GB RAM. HF Spaces sleeps. | Vercel (no persistent process). HF Spaces free tier (cold-sleeps mid-demo). |
+
+---
+
+### D2.1 / D6.1 — corrections from Phase 1 measurement
+
+**Measured, not estimated** (`python -m bench.embed`, `du -sh index`, M-series laptop):
+
+| | |
+|---|---|
+| Query embed, fp32, batch-of-1 | **P50 5.2 ms · P70 5.3 ms · P100 7.8 ms** |
+| Chunks per passage | **5.50** (1 × v1 + 1 × v2 + ~3.5 × v3) |
+| Index build throughput | ~450 chunks/s ⇒ 10k rows ≈ 20 min offline |
+
+**ONNX int8 deferred.** D2 specified it to reach 8–15 ms. fp32 already does 5.2 ms — 4% of
+budget. Converting would add a build step, a deploy artifact, and a real risk to the
+weakest measured score (cross-lingual, 0.854 — §9.0), to save ~2 ms we do not need.
+Revisit only if the **deploy host** measures badly (§15 already requires measuring there,
+not on a laptop). `learn/01_embeddings.py` is the regression check if we ever do convert.
+
+**D6 was wrong and is now corrected.** The original sizing counted *passages* and forgot
+that chunking multiplies vector count by 5.5×. "250k × 384 × int8 ≈ 96 MB" should have read
+~530 MB. Corrected sizing:
+
+| Rows | Passages | Chunks | fp32 | int8 |
+|---|---|---|---|---|
+| 10k | 100k | 0.55M | **0.84 GB** | 0.21 GB |
+| 25k | 249k | 1.37M | 2.11 GB | 0.53 GB |
+
+Taking **10k rows in fp32**: fits a small box, needs no quantization step, and keeps the
+whole encoder story to one dependency. Scale to 25k only if the deploy host has the room.
+
+**The lesson worth keeping:** int8's real justification was always *storage*, never latency.
+The original decision was right for a reason that turned out to be false — which is why
+every locked decision here carries a number that can be checked.
 
 ---
 
@@ -362,6 +396,30 @@ returning a typed `Abstention` with a machine-readable reason.
 | **G2 Safety** | pre-retrieval | Rule-based deny list + PII pattern match over a small, auditable category set | Unsafe or out-of-policy request → refuse, do not retrieve |
 | **G3 Off-topic** | post-retrieval | **The retriever is the OOD detector.** If top-1 fused score < τ, nothing in the corpus is relevant | `"That's not in the knowledge base"` |
 | **G4 Grounding** | post-generation | Token-overlap ratio between answer and cited passage, **plus** the citation must be a passage we actually retrieved | Overlap below threshold or hallucinated citation → fall back to extractive; if that also fails → abstain |
+
+### 9.0 Measured on day 1 — two facts that constrain τ
+
+`learn/01_embeddings.py`, `multilingual-e5-small`, normalized:
+
+| Pair | Cosine |
+|---|---|
+| Same meaning, both English | **0.935** |
+| Unrelated topics, both English | **0.692** |
+| Same meaning, Hindi query vs English | **0.854** |
+
+**1. The score floor is ~0.69, not 0.** Contrastive-trained encoders are anisotropic —
+all outputs occupy a narrow cone, so the usable range is roughly 0.6–1.0. An intuitive
+`τ = 0.5` would never fire and every off-topic query would be answered confidently. τ must
+come from the measured distribution; any hand-picked round number is wrong by construction.
+
+**2. Cross-lingual scores sit systematically below same-language ones** (0.854 vs 0.935 for
+identical meaning). A single global τ therefore abstains more on Hindi than English —
+the system would be quietly worst for its target users. Phase 4 must either fit **τ per
+query language** or normalize scores per language before thresholding. Decide with the
+confusion matrix, not by feel.
+
+D7 is confirmed by row 3: cross-lingual (0.854) beats unrelated (0.692) with room to spare,
+so one shared index is sound.
 
 **τ and the overlap threshold are calibrated, not guessed.** Method: sample 200 in-corpus
 queries and 200 deliberately off-corpus queries (weather, personal questions, other domains,

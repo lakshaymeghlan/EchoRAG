@@ -1,7 +1,4 @@
-"""FastAPI app. AUDIT.md D8: single process, models preloaded at import.
-
-Phase 0 ships /health only. /ask arrives in Phase 3, the mic UI in Phase 5.
-"""
+"""FastAPI app. Single process, models preloaded at import (AUDIT D8)."""
 
 import os
 from contextlib import asynccontextmanager
@@ -16,8 +13,8 @@ load_dotenv()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Phase 1+ loads the ONNX encoder and opens LanceDB here, so a cold model
-    # load can never happen inside a request (AUDIT.md D8).
+    # Phase 1+ loads the encoder and opens LanceDB here, so a cold model load
+    # can never happen inside a request.
     yield
     await stt.aclose()
 
@@ -27,11 +24,7 @@ app = FastAPI(title="EchoRAG", version="0.1.0", lifespan=lifespan)
 
 @app.get("/health")
 async def health() -> dict:
-    """Fails loudly at startup rather than at first request (AUDIT.md §11).
-
-    Phase 0 checks config only. Phase 1 adds an index-present check, and this
-    endpoint becomes the deploy healthcheck + keep-warm target (AUDIT.md D10).
-    """
+    """Deploy healthcheck and keep-warm target."""
     checks = {"sarvam_key": bool(os.environ.get("SARVAM_API_KEY"))}
     return {
         "status": "ok" if all(checks.values()) else "degraded",

@@ -1,8 +1,5 @@
-"""Sarvam speech-to-text. AUDIT.md D1.
-
-Not inside the 200ms SLO — the pipeline clock starts once a transcript exists
-(AUDIT.md §2.1). Latency is still measured and reported as T_stt.
-"""
+"""Sarvam speech-to-text. Not inside the 200ms SLO — the pipeline clock starts
+once a transcript exists (AUDIT §2.1)."""
 
 import asyncio
 import os
@@ -14,7 +11,7 @@ import httpx
 from echorag.schemas import Transcript
 
 ENDPOINT = "https://api.sarvam.ai/speech-to-text"
-MODEL = "saaras:v3"  # auto-detects language; saarika:v2.5 is deprecated (AUDIT.md D1)
+MODEL = "saaras:v3"  # auto-detects language; saarika:v2.5 is deprecated
 MAX_AUDIO_SECONDS = 30  # Sarvam hard limit
 
 _RETRY_STATUS = {408, 409, 429, 500, 502, 503, 504}
@@ -24,7 +21,6 @@ _client: httpx.AsyncClient | None = None
 
 
 def _get_client() -> httpx.AsyncClient:
-    # Reused so we pay the TLS handshake once, not per request.
     global _client
     if _client is None:
         _client = httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0))
@@ -43,11 +39,8 @@ class STTError(RuntimeError):
 
 
 async def transcribe(audio: bytes, filename: str = "audio.wav") -> Transcript:
-    """Transcribe audio via Sarvam. Raises STTError on unrecoverable failure.
-
-    Retries only 408/409/429/5xx and connection errors, never other 4xx —
-    retrying a malformed request just burns credits (AUDIT.md §8, §17).
-    """
+    """Retries 408/409/429/5xx and connection errors only. Retrying other 4xx
+    would just burn credits on a request that will never succeed."""
     key = os.environ.get("SARVAM_API_KEY")
     if not key:
         raise STTError("SARVAM_API_KEY is not set (see .env.example)")
@@ -82,16 +75,14 @@ async def transcribe(audio: bytes, filename: str = "audio.wav") -> Transcript:
             last = exc
             if attempt == _MAX_ATTEMPTS - 1:
                 break
-            # ponytail: fixed 3-attempt backoff local to this module. Moves into
-            # harness.py's shared retry+circuit-breaker in Phase 3 (AUDIT.md §8).
+            # ponytail: local retry; moves into harness.py's shared breaker in Phase 3.
             await asyncio.sleep((0.2 * 2**attempt) + random.uniform(0, 0.1))
 
     raise STTError(f"Sarvam unreachable after {_MAX_ATTEMPTS} attempts: {last}")
 
 
 if __name__ == "__main__":
-    # Phase 0 exit criterion: one live Sarvam call transcribes a WAV.
-    #   python -m echorag.stt path/to/audio.wav
+    # python -m echorag.stt <audio.wav>   (<=30s, 16kHz mono)
     import pathlib
     import sys
 
@@ -100,11 +91,11 @@ if __name__ == "__main__":
     load_dotenv()
 
     if len(sys.argv) != 2:
-        sys.exit("usage: python -m echorag.stt <audio.wav>   (<=30s, 16kHz mono WAV)")
+        sys.exit("usage: python -m echorag.stt <audio.wav>")
 
     path = pathlib.Path(sys.argv[1])
     result = asyncio.run(transcribe(path.read_bytes(), path.name))
     print(f"transcript : {result.text!r}")
     print(f"language   : {result.language_code}")
     print(f"T_stt      : {result.latency_ms:.0f} ms")
-    assert result.text, "empty transcript — check the audio file is speech"
+    assert result.text, "empty transcript — check the audio is speech"
