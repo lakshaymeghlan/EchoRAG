@@ -9,14 +9,39 @@ from echorag.schemas import Abstention, Answer, Evidence
 
 MIN_TOKENS = 2
 
-# Placeholders. bench/guardrails.py fits these from the measured score
-# distributions and writes the confusion matrix (AUDIT §9.0). Two thresholds,
-# not one: cross-lingual scores sit systematically ~0.08 below same-language
-# ones, so a single global value abstains more on Hindi than on English.
-TAU_EN = 0.80
-TAU_INDIC = 0.72
+# A nonsense floor, NOT the off-topic gate. Retrieval score cannot separate
+# answerable from unanswerable on a broad web corpus — the distributions overlap
+# almost entirely (AUDIT §9.-1). Intent does that job; this only catches strings
+# that match nothing at all. Set below the measured in-corpus minimum
+# (EN 0.842 / HI 0.813) so it never refuses a real question.
+TAU_EN = 0.78
+TAU_INDIC = 0.75
 
 GROUNDING_MIN_OVERLAP = 0.5
+
+# What a static corpus structurally cannot answer, whatever it retrieves.
+# False-positive rates measured over 6,535 real corpus queries — each rule is
+# under 2%, so the cost in wrongly-refused questions is small.
+_UNANSWERABLE = (
+    # personal data we do not hold (EN 0.4% / HI 0.8% FP)
+    (re.compile(r"\b(my|mine)\b|मेरा|मेरे|मेरी|मुझे|मैंने", re.I), "personal"),
+    # an action, not a question (EN 0.0% / HI 0.0% FP)
+    (
+        re.compile(
+            r"^\s*(send|play|book|call|email|remind|open|buy|order|text|set)\b"
+            r"|भेजो|चलाओ|बुक करो|खोलो",
+            re.I,
+        ),
+        "action",
+    ),
+    # live state a static corpus cannot know (EN 0.2% / HI 1.9% FP).
+    # कल is deliberately excluded — it means both yesterday and tomorrow and is
+    # common in ordinary questions.
+    (
+        re.compile(r"\b(right now|today|tonight|currently|this week|yesterday)\b|अभी", re.I),
+        "live",
+    ),
+)
 
 _UNSAFE = re.compile(
     r"\b(kill|suicide|bomb|explosive|weapon|hack into|steal|credit card number)\b", re.I
@@ -45,19 +70,65 @@ def check_safety(transcript: str) -> Abstention | None:
     return None
 
 
-def check_relevance(query: str, evidence: list[Evidence]) -> Abstention | None:
-    """G3 — the retriever is the out-of-domain detector.
+def check_answerable(query: str) -> Abstention | None:
+    """G3a — intent gate, runs BEFORE retrieval.
 
-    If nothing in the corpus is close to the query, the honest answer is that
-    we don't know — not a confident answer built on the least-bad match.
+    "What is my bank balance" retrieves passages about bank balances at 0.857 —
+    indistinguishable by score from a real question (AUDIT §9.-1). It is not
+    out-of-domain, it is unanswerable: it needs data we do not have. That is a
+    property of the query, so we detect it from the query.
+    """
+    for pattern, kind in _UNANSWERABLE:
+        if pattern.search(query):
+            return Abstention(
+                reason=f"unanswerable_{kind}",
+                message={
+                    "personal": "I don't have access to your personal information.",
+                    "action": "I can answer questions, but I can't perform actions.",
+                    "live": "I can't look up live or real-time information.",
+                }[kind],
+            )
+    return None
+
+
+MIN_LEXICAL_OVERLAP = 0.2
+
+
+def check_relevance(query: str, evidence: list[Evidence]) -> Abstention | None:
+    """G3b — nonsense backstop, runs after retrieval.
+
+    Demoted from the primary off-topic gate: it catches strings that match
+    nothing, not questions about things we lack.
+
+    Cosine cannot detect gibberish — the encoder maps any string somewhere, and
+    "somewhere" is always within ~0.85 of something. Lexical grounding can: real
+    queries share 40-100% of their words with what they retrieve, invented words
+    share 0%.
+
+    Measured ASCII-only. On Devanagari the same signal gives real p50 1.00 /
+    min 0.85 against nonsense p50 0.84 / max 0.86 — no separation — so applying
+    it there would refuse real questions to catch nothing (AUDIT §9.1).
     """
     if not evidence:
         return Abstention(reason="off_topic", message="I don't have anything on that.")
+
     if evidence[0].dense_score < tau_for(query):
         return Abstention(
             reason="off_topic",
             message="That doesn't appear to be in the knowledge base.",
         )
+
+    if query.isascii():
+        words = set(_WORD.findall(query.lower()))
+        corpus: set[str] = set()
+        for e in evidence[:5]:
+            corpus |= set(_WORD.findall((e.text_en + " " + e.text_translated).lower()))
+        if words and len(words & corpus) / len(words) < MIN_LEXICAL_OVERLAP:
+            return Abstention(
+                reason="off_topic",
+                message="That doesn't appear to be in the knowledge base.",
+            )
+
     return None
 
 

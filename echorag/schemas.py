@@ -39,7 +39,8 @@ class Answer(BaseModel):
     source: str  # extractive | local | anthropic
     confidence: float
     citations: list[str]
-    spans: dict[str, float] = {}  # per-stage ms, for bench and debugging
+    spans: dict[str, float] = {}
+    tool_calls: list[dict] = []  # dispatcher trace (AUDIT §8)
 
 
 class Abstention(BaseModel):
@@ -49,6 +50,7 @@ class Abstention(BaseModel):
     reason: str  # machine-readable: no_speech | unsafe | off_topic | ungrounded
     message: str
     spans: dict[str, float] = {}
+    tool_calls: list[dict] = []
 
 
 class Evidence(BaseModel):
