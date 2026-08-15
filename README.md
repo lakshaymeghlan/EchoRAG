@@ -9,7 +9,7 @@ overturned by measurement.
 
 ```
 voice ─▶ Sarvam saaras:v3 ─▶ [ guards ─▶ retrieve (RRF) ─▶ answer ─▶ ground ]
-                              └───────── T_pipeline P100 116 ms ────────┘
+                              └──────── T_pipeline P100 121 ms ─────────┘
 ```
 
 ## Setup
@@ -23,9 +23,16 @@ cp .env.example .env          # add SARVAM_API_KEY — never put it in .env.exam
 ## Run
 
 ```sh
-uvicorn echorag.api:app --reload
-curl -s localhost:8000/health
+# backend
+uvicorn echorag.api:app --reload          # :8000
+
+# frontend (separate terminal)
+cd frontend && npm run dev                # :3000
 ```
+
+`POST /ask` (form field `text`) and `POST /ask-voice` (form field `audio`) both return the
+same shape, including per-stage timings. An abstention is a normal 200 response, not an
+error — knowing when not to answer is a feature (AUDIT §9).
 
 ## Build the index
 
@@ -46,21 +53,33 @@ python -m bench.embed              # query embed latency
 python -m bench.ablation           # which views earn their latency
 python -m bench.latency            # T_pipeline P50/P70/P100  <- the SLO
 python -m bench.guardrails         # off-topic threshold calibration
+python -m echorag.tools            # tool registry: schema validation, retries, deadline
 python -m echorag.stt sample.wav   # live Sarvam call (<=30s, 16kHz mono)
 ```
 
 ## Measured
 
-**T_pipeline** — transcript in, answer out. 200 queries, 20 warm-up discarded.
+**T_pipeline** — transcript in, answer out. 300 queries, 20 warm-up discarded.
+Full breakdown in [bench/results.md](bench/results.md), chart in `bench/latency.png`.
 
 | | P50 | P70 | P100 |
 |---|---|---|---|
-| English | 37.7 ms | 42.6 ms | 115.8 ms |
-| Hindi | 56.0 ms | 62.5 ms | 77.4 ms |
-| **All** | **51.1 ms** | **56.2 ms** | **115.8 ms** |
+| **All** | **50.6 ms** | **56.9 ms** | **121.3 ms** |
 
 `0/200 over the 200 ms budget.` STT is excluded by design and reported separately —
 measured **513 ms**, which is 2.5x the entire budget and cannot fit inside it (AUDIT §2.1).
+
+**Guardrails** — balanced classes, full pipeline (AUDIT §9.1).
+
+| | answered | refused | |
+|---|---|---|---|
+| English answerable | 19 | 1 | |
+| English unanswerable | **0** | **20** | 100% caught |
+| Hindi answerable | 15 | 1 | |
+| Hindi unanswerable | 4 | 12 | 75% caught |
+
+Known gap: Devanagari nonsense strings are not caught — lexical grounding separates cleanly
+in ASCII and not at all in Devanagari, so it is ASCII-gated rather than shipped broken.
 
 **Retrieval quality** — 150 gold-labelled queries per language.
 
@@ -82,9 +101,9 @@ re-measuring there.
 | 1 | Ingest + index | ✅ |
 | 2 | Retrieval + RRF fusion + ablation | ✅ |
 | 3 | Answering + harness | ✅ |
-| 4 | Guardrails | ⚠️ G1/G2/G4 done — **G3 needs redesign** (AUDIT §9.-1) |
-| 5 | Deploy + mic UI | |
-| 6 | Benchmark + writeup | |
+| 4 | Guardrails + calibration | ✅ |
+| 5 | Next.js frontend + voice API | ✅ (deploy pending) |
+| 6 | Benchmark + writeup | ✅ |
 | 7 | Videos + submission | |
 
 ## What measurement changed
@@ -97,8 +116,10 @@ Decisions overturned by data, not opinion — the reason the audit exists:
 - **ONNX int8 deferred.** Specified for speed; fp32 already runs at 5 ms. Its real
   justification turned out to be storage, not latency.
 - **Views routed by language.** V2 helps Hindi +12.7 recall points and *hurts* English −2.0.
-- **G3 off-topic detection doesn't work as designed.** Retrieval score cannot separate
-  answerable from unanswerable on a broad web corpus.
+- **G3 off-topic detection rebuilt.** Retrieval score cannot separate answerable from
+  unanswerable on a broad web corpus — the distributions overlap almost entirely. Replaced
+  with an intent gate (0-2% false-positive rate, measured on 6,535 real queries) plus a
+  lexical-grounding backstop. English went 0% -> 100% caught.
 
 ## Cost
 
@@ -115,9 +136,13 @@ echorag/
   retrieve.py  multi-view search, RRF fusion, parent dedup
   answer.py    extractive path, deadline race, pipeline
   guards.py    G1-G4
+  tools.py     tool registry + dispatcher (schema-validated, deadline-aware)
   harness.py   Deadline, CircuitBreaker, retry
   schemas.py   typed boundaries
   api.py       FastAPI
-bench/         embed, ablation, latency, guardrails
+bench/         embed, ablation, latency, guardrails, report
+docs/          CHUNKING.md — the six strategies, ablated
+               BACKEND.md  — every file and function explained
+frontend/      Next.js app (mic + timings display)
 learn/         design regression checks (not shipped)
 ```
