@@ -1,0 +1,13 @@
+.env
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Build artifacts — rebuilt by `python -m echorag.index`, never committed (AUDIT.md §4)
+index/
+data/
+bench/runs.jsonl
+bench/*.png
