@@ -19,7 +19,10 @@ REPO = "ai4bharat/MSMARCO-XI"
 SHARD = {"train": "train/{lang}train.parquet", "validation": "validation/{lang}val.parquet"}
 
 _LEADING_JUNK = re.compile(r"^[\s.,;:!?\-–—]+")
-_SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+# Devanagari ends sentences with danda (।), not a period. Omitting it meant
+# Hindi passages never split — one giant "sentence", slower to embed and useless
+# as an extractive answer.
+_SENTENCE_END = re.compile(r"(?<=[.!?।॥])\s*")
 
 
 def normalize_query(text: str) -> str:
@@ -111,7 +114,10 @@ def whole_passage(passage: Passage) -> list[Chunk]:
 
 
 def chunks_for(passage: Passage) -> list[Chunk]:
-    return whole_passage(passage) + sentence_window(passage)
+    # sentence_window (V3) is deliberately not called — the ablation measured it
+    # as negative on recall, MRR and latency (AUDIT §5.2). Kept in the codebase
+    # because the ablation still needs to be reproducible.
+    return whole_passage(passage)
 
 
 # --- index build -----------------------------------------------------------
@@ -171,11 +177,19 @@ def build(lang: str = "hin", split: str = "validation", rows: int = 200, out: st
 
     flush()
 
-    # V5 — lexical index over the same rows. Dense retrieval is weak on exact
-    # tokens (names, model numbers, dates); BM25 covers that gap.
-    from lancedb.index import FTS
+    from lancedb.index import FTS, IvfFlat
 
-    db.open_table("chunks").create_index("text", config=FTS(), replace=True)
+    chunks = db.open_table("chunks")
+
+    # V5 — lexical index. Dense retrieval is weak on exact tokens (names, model
+    # numbers, dates); BM25 covers that gap.
+    chunks.create_index("text", config=FTS(), replace=True)
+
+    # Without this LanceDB brute-force scans every vector on every query.
+    # IvfFlat clusters vectors into partitions and searches only the nearest
+    # few — approximate, but orders of magnitude faster. Flat (not PQ) keeps
+    # the full vectors, so the only recall loss is from partition pruning.
+    chunks.create_index("vector", config=IvfFlat(distance_type="cosine"), replace=True)
 
     return db
 

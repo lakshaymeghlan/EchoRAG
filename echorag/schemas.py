@@ -31,3 +31,34 @@ class Chunk(BaseModel):
     parent_id: str
     text: str
     view: str  # v1 | v2 | v3 | v4
+
+
+class Answer(BaseModel):
+    text: str
+    passage_id: str
+    source: str  # extractive | local | anthropic
+    confidence: float
+    citations: list[str]
+    spans: dict[str, float] = {}  # per-stage ms, for bench and debugging
+
+
+class Abstention(BaseModel):
+    """A first-class response, not an error. Knowing when not to answer is a
+    deliverable (AUDIT §9)."""
+
+    reason: str  # machine-readable: no_speech | unsafe | off_topic | ungrounded
+    message: str
+    spans: dict[str, float] = {}
+
+
+class Evidence(BaseModel):
+    """A retrieved parent passage, after fusion. What the answer stage sees."""
+
+    passage_id: str
+    text_en: str
+    text_translated: str
+    query_type: str
+    score: float  # fused RRF score — comparable within one query only
+    dense_score: float  # best cosine of any chunk of this passage; 0.0 if BM25-only
+    views: list[str]  # which views retrieved it, for debugging the ablation
+    matched_text: str  # the chunk that actually matched, for extractive answering
