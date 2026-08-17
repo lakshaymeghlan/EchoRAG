@@ -6,10 +6,19 @@ import { askText, askVoice, type Result } from "@/lib/api";
 import { useRecorder } from "@/lib/useRecorder";
 import { speechPreviewSupported, useSpeechPreview } from "@/lib/useSpeechPreview";
 
+// Every one of these is verified against the deployed index by
+// scripts/verify_demo.py — the live service cites a passage the dataset marked
+// gold. Re-run that script after changing which index shard is deployed.
+//
+// The first two are the same question in both languages, which is the point of
+// the shared multilingual space. Do not put an unverified query here: the
+// deployed corpus is a shard, so an unmatched question still returns its
+// nearest neighbour and reads as a hallucination. "कॉर्पोरेशन क्या है?" and
+// "who invented the telephone" were both removed for exactly that.
 const EXAMPLES = [
-  { label: "what is a corporation?", hint: "English" },
-  { label: "कॉर्पोरेशन क्या है?", hint: "Hindi" },
-  { label: "who invented the telephone", hint: "entity" },
+  { label: "how fast does an eagle travel", hint: "English" },
+  { label: "बाज़ कितनी तेजी से यात्रा करता है", hint: "Hindi" },
+  { label: "stubhub toll free number", hint: "exact fact" },
   { label: "what is my bank account balance", hint: "refused" },
 ];
 
