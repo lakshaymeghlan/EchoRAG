@@ -5,6 +5,7 @@
 """
 
 import collections
+import os
 import time
 
 import lancedb
@@ -12,7 +13,10 @@ import lancedb
 from echorag import embed
 from echorag.schemas import Evidence
 
-INDEX_DIR = "index"
+# Same env var scripts/fetch_index.py downloads into — it honoured
+# ECHORAG_INDEX_DIR while this was hardcoded, so setting it put the index
+# somewhere retrieval never looked.
+INDEX_DIR = os.environ.get("ECHORAG_INDEX_DIR", "index")
 RRF_K = 60  # flattens the curve so one confident-but-wrong view can't dominate
 
 # Measured, not guessed (AUDIT §5.3). Search ONLY the view matching the query's

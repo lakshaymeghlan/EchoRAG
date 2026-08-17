@@ -10,10 +10,13 @@ A Dataset repo rather than the Space itself: Spaces are for code, and 723 MB of
 LanceDB files in a Space repo makes every push slow.
 """
 
+import os
 import pathlib
 import sys
 
-INDEX_DIR = pathlib.Path("index")
+# Same env var fetch_index.py and retrieve.py use, so `ECHORAG_INDEX_DIR=x`
+# means one directory everywhere instead of three different defaults.
+INDEX_DIR = pathlib.Path(os.environ.get("ECHORAG_INDEX_DIR", "index"))
 
 
 def main() -> int:
