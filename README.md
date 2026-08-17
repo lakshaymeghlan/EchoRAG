@@ -1,3 +1,14 @@
+---
+title: EchoRAG
+emoji: 🎙️
+colorFrom: green
+colorTo: yellow
+sdk: docker
+app_port: 7860
+pinned: false
+short_description: Voice RAG over MSMARCO-XI, transcript to answer in under 200ms
+---
+
 # EchoRAG
 
 Voice-enabled RAG over [MSMARCO-XI](https://huggingface.co/datasets/ai4bharat/MSMARCO-XI).
@@ -126,6 +137,32 @@ Decisions overturned by data, not opinion — the reason the audit exists:
   unanswerable on a broad web corpus — the distributions overlap almost entirely. Replaced
   with an intent gate (0-2% false-positive rate, measured on 6,535 real queries) plus a
   lexical-grounding backstop. English went 0% -> 100% caught.
+
+## Deploy (HuggingFace Spaces)
+
+One container serves the UI and the API on port 7860 — one URL, no CORS.
+
+```sh
+# 1. build the index locally, then push it to a Dataset repo (once)
+python -m echorag.index --lang hin --rows 10000
+huggingface-cli login
+python scripts/push_index.py <your-username>/echorag-index
+
+# 2. create a Space (SDK: Docker), then push this repo to it
+git remote add space https://huggingface.co/spaces/<your-username>/echorag
+git push space main
+```
+
+In the Space settings:
+
+| Where | Key | Value |
+|---|---|---|
+| **Secrets** | `SARVAM_API_KEY` | your key — never commit it |
+| Variables | `ECHORAG_INDEX_REPO` | `<your-username>/echorag-index` |
+
+The container downloads the index at boot (~1-2 min, since Spaces disk is
+ephemeral), then stays warm. `/health` reports `index_ready` so a failed download
+is visible rather than silent.
 
 ## Cost
 

@@ -1,4 +1,8 @@
-export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+// Empty by default so requests go to the same origin — in production FastAPI
+// serves this UI and the API together, so "/ask" is correct and there is no
+// CORS. Local dev sets NEXT_PUBLIC_API_URL=http://localhost:8000 in .env.local,
+// because there the two run on different ports.
+export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 export type Spans = Record<string, number>;
 

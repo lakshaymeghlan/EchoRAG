@@ -2,12 +2,14 @@
 
 import asyncio
 import os
+import pathlib
 import time
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from echorag import answer, embed, retrieve, stt
 from echorag.schemas import Abstention
@@ -146,3 +148,14 @@ async def ask_voice(audio: UploadFile = File(...)) -> dict:
 
     result = await answer.answer_question(transcript.text)
     return _payload(result, transcript.text, stt_ms=stt_ms)
+
+
+# --- static frontend -------------------------------------------------------
+# Mounted LAST so it never shadows /ask, /ask-voice or /health. StaticFiles at
+# "/" is a catch-all; registering it earlier would swallow the API routes.
+#
+# Built with: cd frontend && npm run build   (next.config.ts sets output:"export")
+# Absent in local dev, where Next serves itself on :3000 — the app still starts.
+_UI = pathlib.Path(__file__).resolve().parent.parent / "frontend" / "out"
+if _UI.is_dir():
+    app.mount("/", StaticFiles(directory=_UI, html=True), name="ui")

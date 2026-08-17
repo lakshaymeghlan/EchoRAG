@@ -1,0 +1,15 @@
+# Never ship these into the image — .venv alone is 1.4 GB.
+.venv/
+node_modules/
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+index/
+data/
+.git/
+__pycache__/
+*.pyc
+.env
+learn/
+bench/runs.jsonl
+bench/*.png
