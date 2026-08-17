@@ -1,184 +1,200 @@
 # Video 1 — exact shooting script (90 seconds)
 
-Every line number below is real and checked against `AUDIT.md` (812 lines). Every
-number in the spoken text is one we actually measured.
+Structure you asked for: **folder structure → live latency command → how the
+backend was built → how the frontend was built.** No product UI; the browser
+stays closed. Everything below is real and checked.
 
-No product, no UI, no browser. Editor and terminal only.
+90 seconds is brutally short for four topics, so every beat has a word count.
+Total is 340 words ≈ 227 wpm, a brisk but natural read.
 
 ---
 
-## Step 0 — set up before you record (5 minutes)
+## Step 0 — prep before recording (5 minutes)
 
-**Window layout.** Two windows only, and practise the switch:
-
-- **Window A** — editor with `AUDIT.md` open. Nothing else in the tab bar.
-- **Window B** — terminal, font size up, cleared.
-
-**Prepare the terminal output now, so you never wait on camera.** The ablation
-takes minutes to run; you are going to show a finished table, not a spinner.
+**One terminal, three tabs.** Font large, `clear` before each take.
 
 ```bash
 cd "/Users/lakshaymeghlan/projects/hackaton/ Rag hhGOA/EchoRAG"
-
-# Tab 1 — the ablation table (takes a few minutes; leave the result on screen)
-./.venv/bin/python -m bench.ablation --queries 300 --lang en
-
-# Tab 2 — the commit history, already scrolled to the top
-git log --oneline | head -40
 ```
 
-**Editor settings:** hide the minimap and the file tree, turn on word wrap. Zoom
-until roughly 40 lines fill the screen — text must survive compression.
+**Tab 1 — folder structure.** Run it now and leave the output on screen:
 
-**Practise these four jumps** (`Cmd+G`, type the number, Enter):
+```bash
+ls -1 | grep -v __pycache__
+wc -l echorag/*.py | sort -n
+```
 
-| Beat | Go to line | What is there |
-|---|---|---|
-| 1 | **47** | §2.1 "What the full process can honestly mean" |
-| 2 | **212** | D2.1 / D6.1 — corrections from Phase 1 measurement |
-| 3 | **368** | §5.2 Ablation result — V3 cut |
-| 4 | **505** | §9.-1 "G3 as designed does not work" |
+**Tab 2 — the latency benchmark.** This is your money shot. Run it *before*
+recording; it takes minutes and you want the finished table:
 
-Do a silent dry run of all four jumps before recording. Fumbling for a line on
-camera costs you five of your ninety seconds.
+```bash
+./.venv/bin/python -m bench.latency
+```
 
----
+Ends with `PASS: 300/300 within budget`. Scroll so the summary block and that
+PASS line are both visible.
 
-## Beat 1 — 0:00 to 0:14 · the constraint
+**Tab 3 — the live check.** Warm it first, then run:
 
-**Do:** Window A, `AUDIT.md` at **line 47**. The bold line
-*"STT cannot be inside 200 ms"* should be visible. Scroll slowly, about three
-lines, while you talk.
+```bash
+curl -s -X POST https://echorag.vercel.app/api/ask \
+  -F "text=how fast does an eagle travel" | python3 -m json.tool
+```
 
-**Say:**
+You want the `spans` object visible: `embed`, `retrieve`, `extract`, `total`.
 
-> "The brief gave us a 200 millisecond budget. Before writing any code we
-> measured whether that was even possible — and it isn't. Speech-to-text alone
-> measured 513 milliseconds, because it's a network round trip to a third party.
-> So we wrote down exactly what we commit to: transcript in hand, to answer
-> leaving the server. And we report speech-to-text as its own number, next to
-> it, instead of quietly folding it in."
+> Run it twice. The first is a cold start (~290 ms). The second is ~91 ms. Show
+> the second.
 
-*(Beat is ~62 words. Do not rush it — this is the sentence that establishes you
-measured before you built.)*
+**Editor:** `AUDIT.md` open in a second window, minimap and file tree hidden.
+Practise `Cmd+G` → `505` (the "G3 does not work" section) until it's instant.
 
 ---
 
-## Beat 2 — 0:14 to 0:32 · the audit as a contract
+## Beat 1 — 0:00 to 0:12 · what it is and the structure
 
-**Do:** `Cmd+G` → **212**. Land on "D2.1 / D6.1 — corrections from Phase 1
-measurement". Scroll up a few lines so **D9.1** is briefly visible too.
+**Do:** Tab 1, the `ls -1` output. Move your cursor down the list as you name
+things.
 
 **Say:**
 
-> "Every decision lives in this file with a reason and a number. And when a
-> decision turned out to be wrong, we didn't delete it — we appended the
-> correction underneath it. D2.1, D6.1, D9.1 are all reversals. You can still
-> read what we believed, what the measurement said, and what we changed. The
-> document is a record, not a brochure."
+> "EchoRAG — ask a question out loud in Hindi or English, get an answer quoted
+> from a real passage. Here's the whole repo. `echorag` is the backend,
+> `frontend` is the interface, `bench` is how we measure everything, and
+> `AUDIT.md` is the design document every decision goes into before it gets
+> built."
 
-*(~58 words.)*
+*(52 words)*
 
 ---
 
-## Beat 3 — 0:32 to 0:56 · measure, don't guess
+## Beat 2 — 0:12 to 0:26 · the backend, by size
 
-**Do:** Switch to Window A **line 368** for two seconds so the ablation table is
-on screen, then switch to Window B tab 1 with the finished `bench.ablation`
-output. Put the cursor near the `V1 only` row.
+**Do:** Same tab, the `wc -l echorag/*.py` output — sorted, so it reads small to
+large.
 
 **Say:**
 
-> "This is the table that decides what ships. Sentence-window chunking is a
-> textbook technique and we expected it to win. Measured, it lowered Hindi
-> recall, lowered ranking quality, and cost nine milliseconds — worse on every
-> axis. So we cut it, and the index got sixty-three percent smaller.
+> "The entire backend is sixteen hundred lines. Retrieval is the biggest file at
+> two hundred and thirty. `schemas` defines the two things this can return — an
+> answer, or a typed refusal. `guards` is the guardrails. `harness` is the
+> deadline and the circuit breaker. And there's deliberately no language model
+> anywhere in here."
+
+*(52 words)*
+
+---
+
+## Beat 3 — 0:26 to 0:48 · the latency proof
+
+**Do:** Switch to Tab 2 with the finished `bench.latency` table. Point at the
+`total` row, then at `PASS: 300/300`.
+
+**Say:**
+
+> "This is the run that matters. Three hundred queries, warm-up discarded,
+> measured per stage — embed, retrieve, extract. P50 is twenty-nine
+> milliseconds, P95 thirty-five, worst case a hundred and nine. Three hundred out
+> of three hundred inside the two hundred millisecond budget.
 >
-> The same table showed searching both languages at once destroys ranking. So
-> each query now searches only its own language. Neither of those is a guess
-> we'd have got right."
+> And to be straight about it: that budget is transcript to answer. Speech-to-text
+> is a network call to Sarvam and measured five hundred and thirteen milliseconds
+> on its own. We report it separately instead of hiding it."
 
-*(~74 words. The phrase "worse on every axis" is the one to land.)*
+*(80 words — the longest beat. Do not rush the last sentence; it's the one that
+buys you credibility.)*
 
 ---
 
-## Beat 4 — 0:56 to 1:14 · what measuring caught
+## Beat 4 — 0:48 to 1:02 · it's live, not just local
 
-**Do:** Window B tab 2, `git log --oneline`. Scroll it slowly and continuously
-while you speak. Nobody reads it; the motion signals real history.
+**Do:** Tab 3, the curl output with `spans` visible.
 
 **Say:**
 
-> "Measuring also found bugs that reading the code never would. A deprecated
-> database call that returned an object instead of a list — so a check silently
-> passed and an index never got built. A missing Devanagari full stop, which
-> meant Hindi passages never split into sentences at all. And a leaked coroutine
-> every time we ran out of budget mid-request. None of those three throw an
-> error. They just quietly make the system worse."
+> "Same thing against the deployed service — this is curl, not a demo page. You
+> get the answer, the passage ID it came from, and the timing for every stage.
+> Ninety-one milliseconds on a free serverless tier, still under budget."
 
-*(~66 words.)*
+*(41 words)*
 
 ---
 
-## Beat 5 — 1:14 to 1:30 · the honest part
+## Beat 5 — 1:02 to 1:14 · the frontend
 
-**Do:** `Cmd+G` → **505**. The heading *"G3 as designed does not work"* must be
-clearly readable. Stop scrolling. Let it sit still on screen for the whole beat.
+**Do:** Editor or Tab 1, `ls frontend/app frontend/lib`.
 
 **Say:**
 
-> "And the section we're most proud of is the one where we wrote down that our
-> own guardrail didn't work. Our off-topic detector assumed a bad question
-> retrieves bad matches. We measured it — the distributions almost completely
-> overlap. Worse, our own calibration was rigged: a hundred and twenty good
-> questions against eight bad ones, so 'always answer' scored best.
->
-> So we rebuilt it as an intent gate and validated it against six and a half
-> thousand real queries. Writing that down is the process."
+> "The frontend is Next.js, exported static. `useSpeechPreview` shows your words
+> in the box as you speak so it feels live, then the recorder sends the audio to
+> Sarvam when you stop the mic. The latency meter draws the two hundred
+> millisecond budget to scale, so you can see the answer land inside it."
 
-*(~78 words. End on "is the process" and stop. Do not add a sign-off.)*
+*(52 words)*
 
 ---
 
-## Timing check
+## Beat 6 — 1:14 to 1:30 · the honest part
 
-| Beat | Window | Runs | Words |
+**Do:** Editor window, `Cmd+G` → **505**. The heading *"G3 as designed does not
+work"* readable. Stop scrolling and let it sit.
+
+**Say:**
+
+> "And this is the section we're most proud of — where we wrote down that our own
+> guardrail didn't work. It assumed a bad question retrieves bad matches. We
+> measured it; the distributions overlap almost completely. Worse, our own test
+> was rigged — a hundred and twenty good questions against eight bad ones, so
+> 'always answer' scored best. We rebuilt it and validated against six and a half
+> thousand real queries. That's the process."
+
+*(67 words. End on "That's the process." Stop. No sign-off.)*
+
+---
+
+## Timing table
+
+| Beat | Screen | Runs | Words |
 |---|---|---|---|
-| 1 constraint | A · line 47 | 0:00–0:14 | 62 |
-| 2 contract | A · line 212 | 0:14–0:32 | 58 |
-| 3 ablation | A 368 → B tab 1 | 0:32–0:56 | 74 |
-| 4 bugs | B tab 2 · git log | 0:56–1:14 | 66 |
-| 5 honesty | A · line 505 | 1:14–1:30 | 78 |
+| 1 structure | Tab 1 · `ls -1` | 0:00–0:12 | 52 |
+| 2 backend | Tab 1 · `wc -l` | 0:12–0:26 | 48 |
+| 3 latency | Tab 2 · bench.latency | 0:26–0:48 | 80 |
+| 4 live | Tab 3 · curl | 0:48–1:02 | 41 |
+| 5 frontend | `ls frontend/...` | 1:02–1:14 | 52 |
+| 6 honesty | AUDIT.md line 505 | 1:14–1:30 | 67 |
 
-**338 words in 90 seconds** — about 225 words per minute. That is brisk but
-normal for a confident read. **Read it out loud with a timer twice before
-recording.** If you land over 90 seconds, cut the second sentence of beat 4
-("A missing Devanagari full stop…") rather than speaking faster.
+**340 words / 90 s.** Read it aloud with a timer twice.
+
+**If you run over**, cut in this order:
+1. The `spans` sentence in beat 4 ("You get the answer, the passage ID…").
+2. The `harness` clause in beat 2.
+3. Never cut beat 3's speech-to-text disclosure or beat 6.
 
 ---
 
-## Rules while recording
+## Rules
 
-- **Record the audio in one take.** Screen capture can be re-recorded and lined
-  up afterwards; a spliced voice track is audible.
-- **Keep scrolling slow.** Fast scrolling turns to mush after compression.
-- **Never show the browser or the UI.** The brief says process, not product.
-  Showing the demo here wastes the beat and duplicates video 2.
-- **Do not say "we used AI to build it".** Nobody is asking. The measurements
-  are the story.
-- If you fumble a line, stop and restart the beat. Do not apologise on tape.
+- **Audio in one take.** Re-record screen capture and align it after; a spliced
+  voice track is audible.
+- **Never open the browser.** The brief says process, not product — the UI is
+  video 2's job.
+- **Scroll slowly.** Fast scrolling turns to mush after compression.
+- Fumble a line → stop, restart that beat. Don't apologise on tape.
+- Don't say "we used AI to build it". Nobody asked; the measurements are the story.
 
 ## Numbers you may say — all verified
 
-- 200 ms budget · STT measured **513 ms**
-- Sentence-window chunking: **−9 ms worse, lower recall AND lower MRR**
-- Index shrank **63%** (chunks per passage 5.50 → 2.0)
+- Backend **1,610 lines**; `retrieve.py` largest at 234
+- Local: **P50 29 ms · P95 35 ms · P100 109 ms · 300/300 under 200 ms**
+- Live warm: **P50 91 ms · P95 165 ms · 0/20 over budget**
+- STT measured **513 ms**, reported separately
 - Off-topic detection: in-corpus min **0.842** vs off-topic max **0.887** — overlapping
 - Rigged calibration: **120 positives vs 8–10 negatives**
-- Rebuilt gate validated on **6,535 real queries**; English unanswerable **100% caught**
+- Rebuilt gate validated on **6,535 real queries**
 
 ## Do not say
 
-- Any latency number for the *live* site (this video has no product in it).
-- "99,985 passages" as if the deployed demo searches them — that's video 2's
-  careful wording, and it doesn't belong here.
+- That the live demo searches 99,985 passages. The benchmark is on the full
+  corpus; the hosted demo runs a smaller shard on a free tier. If you mention
+  corpus size at all, say it that way.
