@@ -6,8 +6,7 @@
     },
     "api": {
       "root": ".",
-      "entrypoint": "echorag.api:app",
-      "excludeFiles": "{frontend/**,bench/**,learn/**,docs/**,index/**,index-small/**,.venv/**,**/__pycache__/**,**/*.pyc,test_*.py,*.md}"
+      "entrypoint": "echorag.api:app"
     }
   },
   "rewrites": [

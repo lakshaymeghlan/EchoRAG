@@ -11,3 +11,5 @@ index/
 data/
 bench/runs.jsonl
 bench/*.png
+.vercel
+.env*

@@ -1,0 +1,23 @@
+# Keep the upload and the function bundle small. The Python bundle limit is
+# 500 MB uncompressed, and .venv alone is 1.4 GB.
+.venv/
+node_modules/
+frontend/node_modules/
+frontend/.next/
+
+# Indexes are fetched at runtime from the HF dataset repo
+# (retrieve.ensure_index), not shipped in the bundle.
+index/
+index-small/
+data/
+
+# Dev-only: bench pulls datasets, learn pulls torch.
+bench/
+learn/
+docs/
+test_*.py
+
+__pycache__/
+*.pyc
+.env
+.git/

@@ -7,7 +7,6 @@
 import collections
 import os
 import pathlib
-import shutil
 import sys
 import time
 
@@ -40,23 +39,30 @@ def views_for(query: str) -> tuple[str, ...]:
 _db = None
 
 
-def index_present(where: str = INDEX_DIR) -> bool:
-    return all(
-        pathlib.Path(where, name).is_dir() for name in ("chunks.lance", "passages.lance")
-    )
+def index_present(where: str | None = None) -> bool:
+    # Resolved per call, not as a default argument — INDEX_DIR is rebound by
+    # ensure_index(), and a default would freeze the value at import time.
+    root = pathlib.Path(where if where is not None else INDEX_DIR)
+    return all((root / name).is_dir() for name in ("chunks.lance", "passages.lance"))
 
 
 def ensure_index(repo: str | None = None) -> bool:
-    """Download the prebuilt index if it isn't on disk yet. Returns True if usable.
+    """Point INDEX_DIR at a usable index, downloading one if needed.
 
-    Container hosts run scripts/fetch_index.py before uvicorn, so this is a no-op
-    there. Serverless hosts have no startup command and a fresh filesystem per
-    cold start, so the app has to be able to fetch its own index — hence one
-    implementation here rather than logic that only exists in the script.
+    Container hosts run scripts/fetch_index.py before uvicorn; serverless hosts
+    have no startup command and a fresh filesystem per cold start, so the app has
+    to be able to do this itself. One implementation, both paths.
+
+    The downloaded snapshot is read in place instead of copied. On a serverless
+    host /tmp is only 512 MB and already holds the hub cache, so copying the
+    tables out of it doubled usage and produced "No space left on device". The
+    hub cache is also memory-mappable, which was the original reason to copy.
 
     Never raises: a missing index should surface as a degraded /health, not a
-    process that won't boot.
+    process that refuses to boot.
     """
+    global INDEX_DIR
+
     if index_present():
         return True
 
@@ -76,17 +82,11 @@ def ensure_index(repo: str | None = None) -> bool:
         if not (src / "chunks.lance").exists() and (src / "index").is_dir():
             src = src / "index"
 
-        dest_root = pathlib.Path(INDEX_DIR)
-        dest_root.mkdir(parents=True, exist_ok=True)
-        for item in src.iterdir():
-            if item.name.startswith("."):
-                continue
-            dest = dest_root / item.name
-            if dest.exists():
-                continue
-            # Copy rather than symlink: the hub cache may be on another mount,
-            # and LanceDB memory-maps these files.
-            shutil.copytree(item, dest) if item.is_dir() else shutil.copy2(item, dest)
+        if not index_present(str(src)):
+            print(f"[retrieve] {repo} has no chunks.lance/passages.lance", file=sys.stderr)
+            return False
+
+        INDEX_DIR = str(src)
     except Exception as exc:  # noqa: BLE001 — degrade to /health, never block boot
         print(f"[retrieve] index fetch failed: {exc}", file=sys.stderr)
         return False
