@@ -1,0 +1,22 @@
+# Render Blueprint. Connect this repo at dashboard.render.com/blueprints and
+# Render reads this instead of asking you to fill in forms.
+#
+# Free plan is 512 MB / 0.1 CPU. Measured peak RSS with the full 100k-passage
+# index is ~1 GB, so ECHORAG_INDEX_REPO below points at a smaller shard built
+# for deployment. The full-corpus numbers in bench/results.md were measured
+# locally and stay the reference result — see README.
+services:
+  - type: web
+    name: echorag
+    runtime: docker
+    plan: free
+    region: singapore # closest Render region to India
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: ECHORAG_INDEX_REPO
+        value: lakshaymeghlan/echorag-index
+      - key: ECHORAG_GENERATOR
+        value: none # extractive only; nothing to hallucinate
+      - key: SARVAM_API_KEY
+        sync: false # set in the dashboard, never in git

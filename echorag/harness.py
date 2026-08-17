@@ -81,6 +81,13 @@ async def with_deadline(coro: Awaitable[T], deadline: Deadline) -> T | None:
     """
     remaining = deadline.remaining_ms()
     if remaining <= 0:
+        # The caller already built the coroutine, so bailing out without
+        # awaiting leaks it and emits "coroutine was never awaited". Closing it
+        # is the only path here that runs no user code. (asyncio.wait_for below
+        # cancels correctly on timeout, so only this early return needs it.)
+        close = getattr(coro, "close", None)
+        if close is not None:
+            close()
         return None
     try:
         return await asyncio.wait_for(coro, timeout=remaining / 1000)

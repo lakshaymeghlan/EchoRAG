@@ -8,8 +8,6 @@ import collections
 import re
 import time
 
-from datasets import load_dataset
-
 from echorag import embed
 from echorag.schemas import Chunk, Passage
 
@@ -36,6 +34,12 @@ def split_sentences(text: str) -> list[str]:
 
 def load_passages(lang: str = "hin", split: str = "validation", rows: int | None = None):
     """Stream one language shard, flattened to one Passage per passage."""
+    # Imported here, not at module scope: answer.py pulls split_sentences out of
+    # this module on the serving path, and a top-level import would drag
+    # datasets (pyarrow, pandas, fsspec, multiprocess) into every server
+    # process to support a regex. Index building is the only caller.
+    from datasets import load_dataset
+
     ds = load_dataset(REPO, data_files=SHARD[split].format(lang=lang), split="train", streaming=True)
 
     for i, row in enumerate(ds):

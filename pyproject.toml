@@ -3,6 +3,9 @@ name = "echorag"
 version = "0.1.0"
 description = "Voice-enabled RAG over MSMARCO-XI with a sub-200ms retrieval SLO"
 requires-python = ">=3.11"
+# Serving only. No torch: the encoder runs the published ONNX int8 graph through
+# onnxruntime (AUDIT.md D2), which is what makes a 512 MB deploy target thinkable
+# at all — torch put peak RSS near 1 GB.
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
@@ -10,15 +13,18 @@ dependencies = [
     "pydantic>=2.9",
     "python-dotenv>=1.0",
     "lancedb>=0.15",
-    "datasets>=3.0",
+    "onnxruntime>=1.20",
+    "tokenizers>=0.20",
+    "huggingface_hub>=0.25",
 ]
 
-# Phase 1+ deps (lancedb, onnxruntime, tokenizers) are added in their phase,
-# not now — see AUDIT.md §13.
-
 [project.optional-dependencies]
-# Dev/learning only. Pulls torch (~2GB) for a readable API while learning.
-# The deployed server never installs this — it runs ONNX int8 (AUDIT.md D2).
+# Offline index building only (echorag/index.py). Heavy — pyarrow, pandas,
+# fsspec, multiprocess — and never needed to answer a question.
+index = ["datasets>=3.0"]
+
+# Dev only: pulls torch (~2 GB) so learn/01_embeddings.py can cross-check the
+# ONNX vectors against sentence-transformers. Never installed in the image.
 learn = ["sentence-transformers>=3.0"]
 
 [build-system]
