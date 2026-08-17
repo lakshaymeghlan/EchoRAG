@@ -1,6 +1,6 @@
 """Upload the local index to a HuggingFace Dataset repo. Run once, locally.
 
-    huggingface-cli login
+    hf auth login
     python scripts/push_index.py your-username/echorag-index
 
 Then set ECHORAG_INDEX_REPO to that same value in your Space's settings, and the

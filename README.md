@@ -145,7 +145,7 @@ One container serves the UI and the API on port 7860 — one URL, no CORS.
 ```sh
 # 1. build the index locally, then push it to a Dataset repo (once)
 python -m echorag.index --lang hin --rows 10000
-huggingface-cli login
+hf auth login
 python scripts/push_index.py <your-username>/echorag-index
 
 # 2. create a Space (SDK: Docker), then push this repo to it
