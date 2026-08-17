@@ -3,9 +3,11 @@ title: EchoRAG
 emoji: 🎙️
 colorFrom: green
 colorTo: yellow
-sdk: docker
-app_port: 7860
+sdk: gradio
+sdk_version: 5.49.1
+app_file: app.py
 pinned: false
+license: mit
 short_description: Voice RAG over MSMARCO-XI, transcript to answer in under 200ms
 ---
 

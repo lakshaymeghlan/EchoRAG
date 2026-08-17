@@ -15,7 +15,9 @@
 
 # next.js
 /.next/
-/out/
+# /out/ is intentionally NOT ignored: the HF Space (gradio SDK) has no
+# build step, so the compiled UI ships in git. Rebuild with `npm run build`.
+# /out/
 
 # production
 /build

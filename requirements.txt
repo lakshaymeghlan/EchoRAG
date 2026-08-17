@@ -1,0 +1,17 @@
+# HF Spaces (gradio SDK) installs from this file, not pyproject.toml.
+
+# CPU-only torch. The default wheel bundles ~340 MB of CUDA libraries for a GPU
+# this Space does not have; sentence-transformers only needs the CPU build.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch
+
+fastapi>=0.115
+uvicorn[standard]>=0.32
+python-multipart>=0.0.9
+httpx>=0.27
+pydantic>=2.9
+python-dotenv>=1.0
+lancedb>=0.15
+datasets>=3.0
+sentence-transformers>=3.0
+huggingface_hub>=0.25
