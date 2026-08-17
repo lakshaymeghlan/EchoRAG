@@ -1,9 +1,9 @@
 # Never ship these into the image — .venv alone is 1.4 GB.
 .venv/
 node_modules/
-frontend/node_modules/
-frontend/.next/
-frontend/out/
+# The whole UI ships to Vercel, not into this image — keep it out of the build
+# context so `gcloud run deploy --source .` uploads megabytes, not gigabytes.
+frontend/
 index/
 data/
 .git/
