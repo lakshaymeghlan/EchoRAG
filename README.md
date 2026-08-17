@@ -8,7 +8,7 @@ sdk_version: 5.49.1
 app_file: app.py
 pinned: false
 license: mit
-short_description: Voice RAG over MSMARCO-XI, transcript to answer in under 200ms
+short_description: Voice RAG over MSMARCO-XI, answers in under 200ms
 ---
 
 # EchoRAG
