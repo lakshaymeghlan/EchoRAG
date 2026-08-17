@@ -11,24 +11,30 @@ import statistics
 
 BUDGET_MS = 200.0
 STAGES = ["embed", "retrieve", "extract", "total"]
+PCTS = [("P50", 50), ("P70", 70), ("P95", 95), ("P99", 99), ("P100", 100)]
 
 
-def pct(xs, p):
-    xs = sorted(xs)
-    return xs[-1] if p >= 1 else xs[min(int(len(xs) * p), len(xs) - 1)]
+def pct(values, q):
+    """Linear-interpolated percentile — nearest-index is off by a whole sample
+    at p95/p99, where few samples sit above the mark."""
+    xs = sorted(values)
+    if len(xs) == 1:
+        return xs[0]
+    k = (len(xs) - 1) * (q / 100)
+    lo, hi = int(k), min(int(k) + 1, len(xs) - 1)
+    return xs[lo] if lo == hi else xs[lo] + (k - lo) * (xs[hi] - xs[lo])
 
 
 def table(runs, stages=STAGES):
-    lines = ["| stage | P50 | P70 | P100 |", "|---|---|---|---|"]
+    head = " | ".join(name for name, _ in PCTS)
+    lines = [f"| stage | {head} |", "|---" * (len(PCTS) + 1) + "|"]
     for s in stages:
         v = [r["spans"][s] for r in runs if s in r["spans"]]
         if not v:
             continue
-        bold = "**" if s == "total" else ""
-        lines.append(
-            f"| {bold}{s}{bold} | {bold}{pct(v, 0.5):.1f} ms{bold} | "
-            f"{bold}{pct(v, 0.7):.1f} ms{bold} | {bold}{pct(v, 1.0):.1f} ms{bold} |"
-        )
+        b = "**" if s == "total" else ""
+        cells = " | ".join(f"{b}{pct(v, q):.1f} ms{b}" for _, q in PCTS)
+        lines.append(f"| {b}{s}{b} | {cells} |")
     return "\n".join(lines)
 
 
@@ -110,9 +116,14 @@ def main() -> None:
         "  separately rather than averaged into one flattering number.",
         "- **P100 is the max**, not a percentile estimate — it is a claim about the worst",
         "  request observed, which is why the deadline is enforced in code (AUDIT §2.3).",
-        "- **Cold start is the tail.** The first request after an idle period costs ~220 ms to",
-        "  embed against a ~15 ms steady state. The server self-pings every 60 s so a judge's",
-        "  first click is never the cold one.",
+        "- **p95/p99 are interpolated**, not nearest-index — at the tail, picking the nearest",
+        "  sample is off by a whole observation.",
+        "- **Cold start was the tail.** Torch selects kernels per input shape, so warming one",
+        "  short string left longer ones cold: a 290 ms first encode against ~7 ms steady state.",
+        "  The server now re-warms a spread of lengths in both scripts every 20 s, which took",
+        "  the first request from 399 ms to 90 ms.",
+        "- **Benchmark on an idle machine.** Every outlier we chased (85, 131, 321 ms) turned",
+        "  out to be CPU contention from a concurrent build, not the pipeline.",
         "",
         "Regenerate: `python -m bench.latency --queries 300 && python -m bench.report`",
         "",

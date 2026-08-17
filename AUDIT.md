@@ -331,6 +331,40 @@ weighted score-blending because RRF needs no per-view score normalization and is
 when one view returns garbage — the failure mode is "that view contributes nothing",
 not "that view's wild scores swamp everyone else's".
 
+### 5.3 Correction — search only the query's own language (post-Phase 6)
+
+Prompted by a reviewer question: *"why not a separate model per language?"* Measuring the
+premise overturned our shipped configuration. 150 gold queries per language, 100k-passage
+index:
+
+| Views searched | HI recall | HI MRR | EN recall | EN MRR | P50 |
+|---|---|---|---|---|---|
+| own language only | **0.807** | **0.529** | **0.967** | **0.620** | ~25 ms |
+| own + other language | 0.807 | 0.412 | 0.980 | 0.549 | ~35 ms |
+| own + BM25 | 0.807 | 0.491 | 0.973 | 0.537 | ~28 ms |
+
+**Searching both languages leaves recall unchanged and destroys MRR** (HI 0.529 → 0.412).
+Cross-lingual hits are topically plausible, so they crowd the top ranks with passages that
+are *about* the subject without containing the answer — and MRR is what we optimise, because
+the extractive stage reads rank 1.
+
+**BM25 is now off by default.** It costs MRR in both languages (HI −0.038, EN −0.083) for at
+most +0.6 recall. Retained on the `widen` path, where a weak dense result is exactly the case
+exact-token matching helps. The index is still built, so re-enabling is one flag.
+
+Net effect: **P50 47.9 → 35.1 ms, P100 161.9 → 62.6 ms, and MRR up ~0.08 in both languages.**
+Faster and more accurate.
+
+**The cross-lingual capability is not wasted** — it is what allows one shared index instead of
+thirteen, and it is why a Hindi query *can* fall back to English passages when its own view
+returns nothing. It is just not useful *alongside* the native view.
+
+**Rejected: a separate embedding model per language.** Two models double resident memory
+(~470 MB → ~940 MB), embedding is already only 4% of budget so there is no speed to win, and
+per-language models produce incomparable vector spaces — which would forfeit the single-index
+property and the cross-lingual fallback. It also does not scale: 13 languages would mean 13
+models and 13 indexes.
+
 ### 5.2 Ablation result — V3 cut, views routed by language (Phase 2)
 
 150 gold-labelled queries per language, ANN index, warm-up discarded.
