@@ -90,19 +90,32 @@ large.
 **Do:** Switch to Tab 2 with the finished `bench.latency` table. Point at the
 `total` row, then at `PASS: 300/300`.
 
-**Say:**
+**Say:** (read the numbers off *your* screen — P100 moves between runs, 109 ms
+and 145 ms both observed. Everything else is stable.)
 
-> "This is the run that matters. Three hundred queries, warm-up discarded,
-> measured per stage — embed, retrieve, extract. P50 is twenty-nine
-> milliseconds, P95 thirty-five, worst case a hundred and nine. Three hundred out
-> of three hundred inside the two hundred millisecond budget.
+> "Three hundred queries, warm-up discarded, timed per stage. Embed two
+> milliseconds, retrieval nineteen, extraction eight. Total P50 thirty
+> milliseconds, P95 thirty-six, worst case a hundred and forty-five — against a
+> two hundred millisecond budget. Three hundred out of three hundred inside it.
+> We target P100, not P50, because a good median with a fat tail still misses the
+> budget for one user in twenty.
 >
-> And to be straight about it: that budget is transcript to answer. Speech-to-text
-> is a network call to Sarvam and measured five hundred and thirteen milliseconds
-> on its own. We report it separately instead of hiding it."
+> And to be straight about it: that budget is transcript to answer.
+> Speech-to-text is a network call to Sarvam and measured five hundred and
+> thirteen milliseconds on its own. We report it separately instead of hiding it."
 
-*(80 words — the longest beat. Do not rush the last sentence; it's the one that
+*(97 words — the longest beat. Do not rush the last sentence; it's the one that
 buys you credibility.)*
+
+**Optional, if you have room** — point at the two per-language blocks:
+
+> "Split by language on purpose. English P50 twenty-eight, Hindi thirty-one.
+> Hindi is consistently slower and we know why: Devanagari tokenizes to about
+> three times as many tokens, so embedding and extraction both do more work.
+> That's why the whole tail sits in Hindi extraction."
+
+*(46 words. Cut this first if you're over time — but if a judge asks what your
+slowest stage is, this is the answer: Hindi extract, P100 112.8 ms.)*
 
 ---
 
@@ -186,7 +199,12 @@ work"* readable. Stop scrolling and let it sit.
 ## Numbers you may say — all verified
 
 - Backend **1,610 lines**; `retrieve.py` largest at 234
-- Local: **P50 29 ms · P95 35 ms · P100 109 ms · 300/300 under 200 ms**
+- Local, 300 queries: **P50 30 ms · P95 36 ms · P99 58 ms · P100 145 ms · 300/300 under 200 ms**
+  - by language: **EN P50 28 ms** (n=139) · **HI P50 31 ms** (n=161), both 0 over budget
+  - stage split: embed **2 ms** · retrieve **19 ms** · extract **8 ms**
+  - slowest stage in the run: **Hindi extract, P100 112.8 ms** — that is the tail
+  - outcomes: **294 answered, 6 refused**
+  - P100 varies run to run (109 and 145 both seen). Read it off the screen.
 - Live warm: **P50 91 ms · P95 165 ms · 0/20 over budget**
 - STT measured **513 ms**, reported separately
 - Off-topic detection: in-corpus min **0.842** vs off-topic max **0.887** — overlapping
