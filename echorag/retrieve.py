@@ -15,16 +15,19 @@ from echorag.schemas import Evidence
 INDEX_DIR = "index"
 RRF_K = 60  # flattens the curve so one confident-but-wrong view can't dominate
 
-# Measured, not guessed (AUDIT §5.2). V3 is cut — it lowered both recall and MRR.
-# V2 (translated passages) helps Indic queries and hurts English ones, so the
-# view set is chosen per query language rather than fixed.
-VIEWS_INDIC = ("v1", "v2")
-VIEWS_EN = ("v1",)
-DENSE_VIEWS = VIEWS_INDIC  # default when the caller doesn't route
+# Measured, not guessed (AUDIT §5.3). Search ONLY the view matching the query's
+# language. Adding the other language's view leaves recall unchanged and drops
+# MRR hard (HI 0.529 -> 0.412), because cross-lingual hits crowd the top ranks
+# with passages that are merely topical. The cross-lingual capability is real —
+# it is what makes one shared index possible — but using it *alongside* the
+# native view is worse than using the native view alone.
+VIEWS_INDIC = ("v2",)  # Hindi query -> Hindi passages
+VIEWS_EN = ("v1",)  # English query -> English passages
+DENSE_VIEWS = VIEWS_EN
 
 
 def views_for(query: str) -> tuple[str, ...]:
-    """Route by script: any Devanagari/Indic codepoint means use the translated view."""
+    """Route by script: any non-ASCII codepoint means use the translated view."""
     return VIEWS_EN if query.isascii() else VIEWS_INDIC
 
 _db = None

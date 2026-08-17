@@ -83,10 +83,15 @@ class ToolError(RuntimeError):
 
 
 def _search_corpus(query: str, k: int = 5, widen: bool = False, qvec=None) -> list[Evidence]:
+    # BM25 off by default: measured to cost MRR in both languages (HI 0.529 ->
+    # 0.491, EN 0.620 -> 0.537) for at most +0.6 recall. Widening turns it on,
+    # since a weak dense result is exactly where exact-token matching helps.
     # Widening deepens the candidate pool rather than adding views: the ablation
     # measured V2 as noise for English queries (-2.0 recall), so "search every
     # view" would make exactly the queries we are trying to rescue worse.
-    evidence, _ = retrieve.retrieve(query, k=k, per_view=60 if widen else 20, qvec=qvec)
+    evidence, _ = retrieve.retrieve(
+        query, k=k, use_bm25=widen, per_view=60 if widen else 20, qvec=qvec
+    )
     return evidence
 
 
