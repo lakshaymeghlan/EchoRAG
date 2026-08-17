@@ -22,6 +22,21 @@ import sys
 
 PORT = int(os.environ.get("PORT", 7860))
 
+# ZeroGPU refuses to start a Space with no @spaces.GPU function ("No @spaces.GPU
+# function detected during startup"), and the free Gradio tier is ZeroGPU-only —
+# cpu-basic needs PRO. This function is never called: the whole pipeline is CPU
+# (torch.cuda.is_available() is False on the request path). It exists purely to
+# satisfy the platform's startup check.
+try:
+    import spaces
+
+    @spaces.GPU(duration=1)
+    def _zerogpu_probe() -> str:
+        return "echorag runs on CPU"
+
+except Exception as exc:  # noqa: BLE001 — never let this block the server
+    print(f"[app] spaces import skipped: {exc}", file=sys.stderr)
+
 
 def fetch_index() -> None:
     """Pull the prebuilt index. Never fatal — a missing index shows up as
