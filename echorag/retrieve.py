@@ -6,6 +6,9 @@
 
 import collections
 import os
+import pathlib
+import shutil
+import sys
 import time
 
 import lancedb
@@ -35,6 +38,60 @@ def views_for(query: str) -> tuple[str, ...]:
     return VIEWS_EN if query.isascii() else VIEWS_INDIC
 
 _db = None
+
+
+def index_present(where: str = INDEX_DIR) -> bool:
+    return all(
+        pathlib.Path(where, name).is_dir() for name in ("chunks.lance", "passages.lance")
+    )
+
+
+def ensure_index(repo: str | None = None) -> bool:
+    """Download the prebuilt index if it isn't on disk yet. Returns True if usable.
+
+    Container hosts run scripts/fetch_index.py before uvicorn, so this is a no-op
+    there. Serverless hosts have no startup command and a fresh filesystem per
+    cold start, so the app has to be able to fetch its own index — hence one
+    implementation here rather than logic that only exists in the script.
+
+    Never raises: a missing index should surface as a degraded /health, not a
+    process that won't boot.
+    """
+    if index_present():
+        return True
+
+    repo = repo or os.environ.get("ECHORAG_INDEX_REPO", "").strip()
+    if not repo:
+        return False
+
+    try:
+        from huggingface_hub import snapshot_download
+
+        src = pathlib.Path(
+            snapshot_download(
+                repo_id=repo, repo_type="dataset", token=os.environ.get("HF_TOKEN") or None
+            )
+        )
+        # Tolerate either layout: tables at the repo root, or nested under index/.
+        if not (src / "chunks.lance").exists() and (src / "index").is_dir():
+            src = src / "index"
+
+        dest_root = pathlib.Path(INDEX_DIR)
+        dest_root.mkdir(parents=True, exist_ok=True)
+        for item in src.iterdir():
+            if item.name.startswith("."):
+                continue
+            dest = dest_root / item.name
+            if dest.exists():
+                continue
+            # Copy rather than symlink: the hub cache may be on another mount,
+            # and LanceDB memory-maps these files.
+            shutil.copytree(item, dest) if item.is_dir() else shutil.copy2(item, dest)
+    except Exception as exc:  # noqa: BLE001 — degrade to /health, never block boot
+        print(f"[retrieve] index fetch failed: {exc}", file=sys.stderr)
+        return False
+
+    return index_present()
 
 
 def _tables():

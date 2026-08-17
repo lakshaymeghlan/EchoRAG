@@ -7,7 +7,7 @@ import time
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -58,6 +58,9 @@ async def lifespan(app: FastAPI):
     # Warm both the encoder and the index before serving. A cold model load
     # inside the first request is an instant P100 violation (AUDIT D8).
     try:
+        # No-op on container hosts, where fetch_index.py already ran. Needed on
+        # serverless, which has no startup command and a fresh filesystem.
+        retrieve.ensure_index()
         _warm_once()
         for q in ("what is a corporation", "कॉर्पोरेशन क्या है"):
             retrieve.retrieve(q, k=5)
@@ -81,7 +84,10 @@ app.add_middleware(
 )
 
 
-@app.get("/health")
+router = APIRouter()
+
+
+@router.get("/health")
 async def health() -> dict:
     """Deploy healthcheck and keep-warm target."""
     checks = {
@@ -125,14 +131,14 @@ def _payload(result, transcript: str, stt_ms: float | None) -> dict:
     }
 
 
-@app.post("/ask")
+@router.post("/ask")
 async def ask(text: str = Form(...)) -> dict:
     """Text in, answer out. This is the path the SLO covers."""
     result = await answer.answer_question(text)
     return _payload(result, text, stt_ms=None)
 
 
-@app.post("/ask-voice")
+@router.post("/ask-voice")
 async def ask_voice(audio: UploadFile = File(...)) -> dict:
     """Audio in, answer out. STT is measured but excluded from the SLO (§2.1)."""
     raw = await audio.read()
@@ -148,6 +154,14 @@ async def ask_voice(audio: UploadFile = File(...)) -> dict:
 
     result = await answer.answer_question(transcript.text)
     return _payload(result, transcript.text, stt_ms=stt_ms)
+
+
+# Registered twice on purpose. Render serves the API at /health and /ask;
+# Vercel Services routes /api/(.*) to this app WITHOUT stripping the prefix
+# ("the service receives the original request path"), so it arrives as
+# /api/ask. One router, both mount points, no per-host build.
+app.include_router(router)
+app.include_router(router, prefix="/api")
 
 
 # --- static frontend -------------------------------------------------------
