@@ -9,6 +9,10 @@ requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
+    # Required by FastAPI for Form()/File() — /ask and /ask-voice both use them.
+    # Easy to miss: it arrives transitively in a dev venv, so the app imports
+    # fine locally and fails at import time in a slim image.
+    "python-multipart>=0.0.9",
     "httpx>=0.27",
     "pydantic>=2.9",
     "python-dotenv>=1.0",
