@@ -6,61 +6,61 @@ discarded. Speech-to-text is excluded by design and reported separately (AUDIT �
 
 ## All queries
 
-| stage | P50 | P70 | P100 |
-|---|---|---|---|
-| embed | 7.4 ms | 8.5 ms | 16.1 ms |
-| retrieve | 26.7 ms | 27.9 ms | 40.0 ms |
-| extract | 15.3 ms | 18.9 ms | 79.0 ms |
-| **total** | **47.8 ms** | **54.5 ms** | **115.3 ms** |
+| stage | P50 | P70 | P95 | P99 | P100 |
+|---|---|---|---|---|---|
+| embed | 6.9 ms | 7.6 ms | 9.7 ms | 13.1 ms | 15.5 ms |
+| retrieve | 16.7 ms | 17.0 ms | 17.9 ms | 19.8 ms | 27.9 ms |
+| extract | 11.1 ms | 15.1 ms | 25.7 ms | 32.2 ms | 36.8 ms |
+| **total** | **35.1 ms** | **39.1 ms** | **50.9 ms** | **57.7 ms** | **62.6 ms** |
 
 - **300/300 within the 200 ms budget** (0 over, 0.0%)
-- mean 47.4 ms · median 47.8 ms
+- mean 36.4 ms · median 35.1 ms
 
 ## English  (n=139)
 
-| stage | P50 | P70 | P100 |
-|---|---|---|---|
-| embed | 7.1 ms | 8.3 ms | 15.2 ms |
-| retrieve | 17.3 ms | 17.7 ms | 29.8 ms |
-| extract | 12.4 ms | 16.6 ms | 38.7 ms |
-| **total** | **37.9 ms** | **42.3 ms** | **72.4 ms** |
+| stage | P50 | P70 | P95 | P99 | P100 |
+|---|---|---|---|---|---|
+| embed | 6.8 ms | 7.5 ms | 9.8 ms | 13.8 ms | 15.5 ms |
+| retrieve | 16.1 ms | 16.3 ms | 17.1 ms | 17.9 ms | 19.6 ms |
+| extract | 10.7 ms | 13.7 ms | 24.2 ms | 29.4 ms | 31.9 ms |
+| **total** | **33.7 ms** | **36.9 ms** | **50.1 ms** | **56.1 ms** | **57.7 ms** |
 
 - 139/139 within budget
 
 ## Hindi  (n=161)
 
-| stage | P50 | P70 | P100 |
-|---|---|---|---|
-| embed | 7.6 ms | 9.0 ms | 16.1 ms |
-| retrieve | 28.1 ms | 28.7 ms | 40.0 ms |
-| extract | 17.4 ms | 20.0 ms | 79.0 ms |
-| **total** | **54.3 ms** | **58.0 ms** | **115.3 ms** |
+| stage | P50 | P70 | P95 | P99 | P100 |
+|---|---|---|---|---|---|
+| embed | 7.0 ms | 7.9 ms | 9.7 ms | 11.7 ms | 14.0 ms |
+| retrieve | 17.0 ms | 17.3 ms | 18.1 ms | 24.8 ms | 27.9 ms |
+| extract | 12.2 ms | 16.8 ms | 26.3 ms | 36.2 ms | 36.8 ms |
+| **total** | **36.4 ms** | **41.2 ms** | **51.5 ms** | **59.9 ms** | **62.6 ms** |
 
 - 161/161 within budget
 
 ## Distribution of total latency
 
 ```
-       0 ms | ███                                              5
+       0 ms | ██                                               5
+       5 ms |                                                  0
       10 ms |                                                  0
-      19 ms | ███                                              6
-      29 ms | ███████████████████████████████████████████      78
-      38 ms | ████████████████████████████████████             66
-      48 ms | ████████████████████████████████████████████████ 87
-      58 ms | ██████████████████████                           40
-      67 ms | ████████                                         14
-      77 ms | █                                                2
-      86 ms |                                                  0
-      96 ms |                                                  0
-     106 ms | █                                                2
+      16 ms |                                                  0
+      21 ms | █████                                            13
+      26 ms | █████████                                        26
+      31 ms | ████████████████████████████████████████████████ 133
+      37 ms | ███████████████████████                          63
+      42 ms | ████████████                                     33
+      47 ms | ██████                                           17
+      52 ms | ██                                               6
+      57 ms | █                                                4
 ```
 
 ## Outcomes
 
 | outcome | count |
 |---|---|
-| Answer | 295 |
-| Abstention | 5 |
+| Answer | 294 |
+| Abstention | 6 |
 
 ## Notes
 
@@ -69,8 +69,13 @@ discarded. Speech-to-text is excluded by design and reported separately (AUDIT �
   separately rather than averaged into one flattering number.
 - **P100 is the max**, not a percentile estimate — it is a claim about the worst
   request observed, which is why the deadline is enforced in code (AUDIT §2.3).
-- **Cold start is the tail.** The first request after an idle period costs ~220 ms to
-  embed against a ~15 ms steady state. The server self-pings every 60 s so a judge's
-  first click is never the cold one.
+- **p95/p99 are interpolated**, not nearest-index — at the tail, picking the nearest
+  sample is off by a whole observation.
+- **Cold start was the tail.** Torch selects kernels per input shape, so warming one
+  short string left longer ones cold: a 290 ms first encode against ~7 ms steady state.
+  The server now re-warms a spread of lengths in both scripts every 20 s, which took
+  the first request from 399 ms to 90 ms.
+- **Benchmark on an idle machine.** Every outlier we chased (85, 131, 321 ms) turned
+  out to be CPU contention from a concurrent build, not the pipeline.
 
 Regenerate: `python -m bench.latency --queries 300 && python -m bench.report`

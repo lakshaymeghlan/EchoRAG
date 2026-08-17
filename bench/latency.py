@@ -45,13 +45,31 @@ def load_queries(index_dir: str, n: int) -> list[tuple[str, str]]:
     return out[:n]
 
 
-def pct(xs: list[float]) -> dict[str, float]:
-    xs = sorted(xs)
-    return {
-        "p50": xs[len(xs) // 2],
-        "p70": xs[min(int(len(xs) * 0.70), len(xs) - 1)],
-        "p100": xs[-1],
-    }
+def percentile(values: list[float], q: float) -> float:
+    """Linear-interpolated percentile.
+
+    Nearest-index picking is off by up to one whole sample, which matters at
+    p95/p99 where few samples sit above the mark.
+    """
+    xs = sorted(values)
+    if len(xs) == 1:
+        return xs[0]
+    k = (len(xs) - 1) * (q / 100)
+    lo, hi = int(k), min(int(k) + 1, len(xs) - 1)
+    if lo == hi:
+        return xs[lo]
+    return xs[lo] + (k - lo) * (xs[hi] - xs[lo])
+
+
+PCTS = [("avg", None), ("p50", 50), ("p70", 70), ("p95", 95), ("p99", 99), ("p100", 100)]
+
+
+def row(name: str, values: list[float]) -> str:
+    cells = "".join(
+        f"{statistics.mean(values):>9.1f}" if q is None else f"{percentile(values, q):>9.1f}"
+        for _, q in PCTS
+    )
+    return f"{name:<12}{cells}"
 
 
 async def main() -> None:
@@ -79,27 +97,34 @@ async def main() -> None:
     print(f"budget  : {BUDGET_MS:.0f} ms\n")
 
     stages = ["embed", "retrieve", "extract", "total"]
+    header = f"{'stage':<12}" + "".join(f"{name:>9}" for name, _ in PCTS) + "   (ms)"
+
     for lang in ("en", "hi", None):
         subset = [r for r in runs if lang is None or r["lang"] == lang]
         if not subset:
             continue
         label = {"en": "English", "hi": "Hindi", None: "ALL"}[lang]
         print(f"--- {label}  (n={len(subset)}) ---")
-        print(f"{'stage':<12}{'P50':>9}{'P70':>9}{'P100':>9}")
+        print(header)
         for s in stages:
             vals = [r["spans"][s] for r in subset if s in r["spans"]]
-            if not vals:
-                continue
-            p = pct(vals)
-            mark = "  <-- SLO" if s == "total" else ""
-            print(f"{s:<12}{p['p50']:>8.1f}{p['p70']:>8.1f}{p['p100']:>8.1f}{mark}")
+            if vals:
+                print(row(s, vals) + ("   <-- SLO" if s == "total" else ""))
 
         over = sum(1 for r in subset if r["spans"].get("total", 0) > BUDGET_MS)
-        print(f"over budget : {over}/{len(subset)}  ({over / len(subset):.1%})")
-        print(f"mean total  : {statistics.mean(r['spans']['total'] for r in subset):.1f} ms\n")
+        print(f"over budget : {over}/{len(subset)}  ({over / len(subset):.1%})\n")
 
-    kinds = collections.Counter(r["kind"] for r in runs)
-    print("outcomes:", dict(kinds))
+    print("outcomes:", dict(collections.Counter(r["kind"] for r in runs)))
+
+    # Exit non-zero on a miss so this can gate a deploy instead of being a
+    # number someone reads and shrugs at.
+    totals = [r["spans"]["total"] for r in runs]
+    worst, over = max(totals), sum(1 for t in totals if t > BUDGET_MS)
+    print(f"\nbudget {BUDGET_MS:.0f} ms | p100 {worst:.1f} ms | p99 {percentile(totals, 99):.1f} ms")
+    if over:
+        print(f"FAIL: {over}/{len(totals)} over budget")
+        raise SystemExit(1)
+    print(f"PASS: {len(totals)}/{len(totals)} within budget")
 
 
 if __name__ == "__main__":

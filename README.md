@@ -9,7 +9,7 @@ overturned by measurement.
 
 ```
 voice ─▶ Sarvam saaras:v3 ─▶ [ guards ─▶ retrieve (RRF) ─▶ answer ─▶ ground ]
-                              └──────── T_pipeline P100 121 ms ─────────┘
+                              └──────── T_pipeline P100 63 ms ─────────┘
 ```
 
 ## Setup
@@ -62,11 +62,12 @@ python -m echorag.stt sample.wav   # live Sarvam call (<=30s, 16kHz mono)
 **T_pipeline** — transcript in, answer out. 300 queries, 20 warm-up discarded.
 Full breakdown in [bench/results.md](bench/results.md), chart in `bench/latency.png`.
 
-| | P50 | P70 | P100 |
-|---|---|---|---|
-| **All** | **50.6 ms** | **56.9 ms** | **121.3 ms** |
+| | P50 | P70 | P95 | P99 | P100 |
+|---|---|---|---|---|---|
+| **All (n=300)** | **35.1 ms** | **39.1 ms** | **50.9 ms** | **57.7 ms** | **62.6 ms** |
 
-`0/200 over the 200 ms budget.` STT is excluded by design and reported separately —
+`0/300 over the 200 ms budget.` `bench.latency` exits non-zero on a miss, so it gates a
+deploy rather than printing a number someone shrugs at. STT is excluded by design and reported separately —
 measured **513 ms**, which is 2.5x the entire budget and cannot fit inside it (AUDIT §2.1).
 
 **Guardrails** — balanced classes, full pipeline (AUDIT §9.1).
@@ -85,8 +86,11 @@ in ASCII and not at all in Devanagari, so it is ASCII-gated rather than shipped 
 
 | Query | Views | recall@10 | MRR@10 |
 |---|---|---|---|
-| Hindi | V1 + V2 + BM25 | 0.767 | 0.448 |
-| English | V1 + BM25 | 0.973 | 0.595 |
+| Hindi | V2 (Hindi passages) | 0.807 | 0.529 |
+| English | V1 (English passages) | 0.967 | 0.620 |
+
+Searching *both* languages leaves recall flat and drops MRR hard (HI 0.529 → 0.412) — see
+[AUDIT §5.3](AUDIT.md). BM25 is off by default for the same reason, retained on the widen path.
 
 **Corpus** — 99,985 passages / 199,970 chunks / 723 MB, from 10k Hindi rows.
 
@@ -115,7 +119,9 @@ Decisions overturned by data, not opinion — the reason the audit exists:
   shrank the index 63%.
 - **ONNX int8 deferred.** Specified for speed; fp32 already runs at 5 ms. Its real
   justification turned out to be storage, not latency.
-- **Views routed by language.** V2 helps Hindi +12.7 recall points and *hurts* English −2.0.
+- **Search only the query's own language.** Searching both leaves recall unchanged and
+  destroys MRR (HI 0.529 -> 0.412). Cut BM25 from the default path for the same reason.
+  Result: P50 47.9 -> 35.1 ms, P100 161.9 -> 62.6 ms, MRR +0.08 in both languages.
 - **G3 off-topic detection rebuilt.** Retrieval score cannot separate answerable from
   unanswerable on a broad web corpus — the distributions overlap almost entirely. Replaced
   with an intent gate (0-2% false-positive rate, measured on 6,535 real queries) plus a
