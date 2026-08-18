@@ -6,19 +6,27 @@ import { askText, askVoice, type Result } from "@/lib/api";
 import { useRecorder } from "@/lib/useRecorder";
 import { speechPreviewSupported, useSpeechPreview } from "@/lib/useSpeechPreview";
 
-// Every one of these is verified against the deployed index by
-// scripts/verify_demo.py — the live service cites a passage the dataset marked
-// gold. Re-run that script after changing which index shard is deployed.
+// Two bilingual pairs plus a refusal. Every one is verified against the
+// deployed index by scripts/verify_demo.py — the live service cites a passage
+// the dataset marked gold. Re-run that script after swapping index shards.
 //
-// The first two are the same question in both languages, which is the point of
-// the shared multilingual space. Do not put an unverified query here: the
-// deployed corpus is a shard, so an unmatched question still returns its
-// nearest neighbour and reads as a hallucination. "कॉर्पोरेशन क्या है?" and
-// "who invented the telephone" were both removed for exactly that.
+// Each pair is the same question in two languages, which demonstrates the
+// shared multilingual space rather than asserting it. Warm p50 / worst:
+// eagle 94/105 EN · 102/125 HI, corn 94/100 EN · 114/137 HI.
+//
+// Chosen for speech as well as correctness — everyday words, no brand names or
+// proper nouns. "stubhub toll free number" and "highest record temperature for
+// redding ca" both pass but Sarvam mangles them when spoken.
+//
+// Never put an unverified query here: the deployed corpus is a shard, so an
+// unmatched question still returns its nearest neighbour and reads as a
+// hallucination. "कॉर्पोरेशन क्या है?" and "who invented the telephone" were
+// removed for exactly that.
 const EXAMPLES = [
   { label: "how fast does an eagle travel", hint: "English" },
   { label: "बाज़ कितनी तेजी से यात्रा करता है", hint: "Hindi" },
-  { label: "stubhub toll free number", hint: "exact fact" },
+  { label: "are corn meal and corn flour the same", hint: "English" },
+  { label: "मक्का का भोजन और मक्का का आटा एक जैसा ही है", hint: "Hindi" },
   { label: "what is my bank account balance", hint: "refused" },
 ];
 
