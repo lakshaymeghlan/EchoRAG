@@ -6,9 +6,12 @@ frontend/node_modules/
 frontend/.next/
 
 # Indexes are fetched at runtime from the HF dataset repo
-# (retrieve.ensure_index), not shipped in the bundle.
+# (retrieve.ensure_index), not shipped in the bundle. Globbed, not listed:
+# naming index-small/ and index/ explicitly missed index-mid/ when it was built
+# later, which pushed the function bundle from 481 MB to 587 MB and over the
+# 500 MB limit. The same omission in .gitignore committed 219 MB.
 index/
-index-small/
+index-*/
 data/
 
 # Dev-only: bench pulls datasets, learn pulls torch.
