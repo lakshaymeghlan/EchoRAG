@@ -2,6 +2,10 @@
 
 import { useCallback, useRef, useState } from "react";
 
+// Below this there is nothing for Sarvam to transcribe, and sending it wastes a
+// round trip to be told so. Roughly a quarter-second of Opus.
+const MIN_AUDIO_BYTES = 1200;
+
 /** MediaRecorder wrapper. Sarvam caps audio at 30s, so we stop at 25s. */
 export function useRecorder(onDone: (blob: Blob) => void, maxMs = 25_000) {
   const [recording, setRecording] = useState(false);
@@ -25,7 +29,14 @@ export function useRecorder(onDone: (blob: Blob) => void, maxMs = 25_000) {
       const mr = new MediaRecorder(stream);
 
       mr.ondataavailable = (e) => e.data.size > 0 && chunks.push(e.data);
-      mr.onstop = () => onDone(new Blob(chunks, { type: mr.mimeType }));
+      mr.onstop = () => {
+        const blob = new Blob(chunks, { type: mr.mimeType });
+        if (blob.size < MIN_AUDIO_BYTES) {
+          setError("Didn't hear anything — hold the mic a moment longer, or type instead.");
+          return;
+        }
+        onDone(blob);
+      };
 
       recorder.current = mr;
       mr.start();

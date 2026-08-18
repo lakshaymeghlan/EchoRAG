@@ -202,7 +202,9 @@ export default function Home() {
                   ))}
                 </span>
                 <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-mint/60">
-                  live caption · sarvam transcribes on stop
+                  {preview.failed
+                    ? "recording · press stop to transcribe"
+                    : "live caption · sarvam transcribes on stop"}
                 </span>
               </div>
             )}
@@ -243,11 +245,15 @@ export default function Home() {
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && submit(text)}
                 readOnly={recording}
+                // preview.failed, not speechPreviewSupported(): the constructor
+                // exists in Brave and then fails at runtime, so promising
+                // "Listening…" there left the user waiting for captions that
+                // were never coming.
                 placeholder={
                   recording
-                    ? speechPreviewSupported()
-                      ? "Listening…"
-                      : "Recording… press stop when done"
+                    ? preview.failed
+                      ? "Recording… press stop when done"
+                      : "Listening…"
                     : "Ask a question, or press record"
                 }
                 aria-label="Question"
@@ -360,10 +366,19 @@ export default function Home() {
           )}
         </section>
 
+        {/* Said "99,985 passages", which is the corpus the benchmarks in
+            bench/results.md were measured on — not what this deployment
+            searches. The free tier holds a smaller shard, so that number was an
+            overclaim sitting in the footer of the demo. */}
         <footer className="font-mono text-[11px] leading-relaxed text-sand/25">
-          99,985 passages · multilingual-e5-small · LanceDB hybrid retrieval · RRF fusion
+          multilingual-e5-small · LanceDB hybrid retrieval · RRF fusion
           <br />
           answers extracted, never generated — nothing to hallucinate
+          <br />
+          <span className="text-sand/20">
+            this demo searches a shard of MSMARCO-XI; benchmarks in the repo use the full
+            99,985-passage corpus
+          </span>
         </footer>
       </main>
     </div>
