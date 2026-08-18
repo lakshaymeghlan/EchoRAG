@@ -15,9 +15,13 @@
 
 # next.js
 /.next/
-# /out/ is intentionally NOT ignored: the HF Space (gradio SDK) has no
+# /out/ IS ignored. It was committed for the HF Space (gradio SDK had no build
+# step), but that host cannot run us at all now and Vercel builds from source.
+# Keeping it committed also shipped a stale bundle with NEXT_PUBLIC_API_URL from
+# .env.local — i.e. a production UI pointing at localhost:8000.
+# Previous note kept for context: the HF Space (gradio SDK) has no
 # build step, so the compiled UI ships in git. Rebuild with `npm run build`.
-# /out/
+/out/
 
 # production
 /build
