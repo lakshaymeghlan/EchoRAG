@@ -171,7 +171,35 @@ export default function Home() {
         </header>
 
         <section className="flex flex-col gap-4">
-          <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-abyss/40 p-2 backdrop-blur-xl transition focus-within:border-mint/40">
+          {/* One bordered shell holding an optional status row above the input
+              row. The status line used to be absolutely positioned at -top-5,
+              which put it in the shell's padding and clipped it against the
+              border. */}
+          <div
+            className={`rounded-2xl border bg-gradient-to-b from-white/[0.04] to-transparent p-2 backdrop-blur-xl transition-all duration-300 focus-within:border-mint/40 ${
+              recording
+                ? "border-mint/40 shadow-[0_0_0_1px_rgba(127,222,190,0.15),0_0_40px_-8px_rgba(127,222,190,0.35)]"
+                : "border-white/10"
+            }`}
+          >
+            {recording && (
+              <div className="flex items-center gap-2 px-2 pb-2 pt-1">
+                <span className="flex items-end gap-[3px]" aria-hidden>
+                  {[0, 1, 2].map((i) => (
+                    <span
+                      key={i}
+                      className="w-[3px] animate-pulse rounded-full bg-mint/70"
+                      style={{ height: `${6 + i * 3}px`, animationDelay: `${i * 140}ms` }}
+                    />
+                  ))}
+                </span>
+                <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-mint/60">
+                  live caption · sarvam transcribes on stop
+                </span>
+              </div>
+            )}
+
+            <div className="flex items-center gap-3">
             <button
               onClick={recording ? endRecording : beginRecording}
               disabled={busy && !recording}
@@ -201,7 +229,7 @@ export default function Home() {
               )}
             </button>
 
-            <div className="relative min-w-0 flex-1">
+            <div className="min-w-0 flex-1">
               <input
                 value={boxValue}
                 onChange={(e) => setText(e.target.value)}
@@ -215,27 +243,20 @@ export default function Home() {
                     : "Ask a question, or press record"
                 }
                 aria-label="Question"
-                className={`w-full bg-transparent px-1 text-[15px] outline-none placeholder:text-sand/30 ${
+                className={`w-full bg-transparent px-1 text-[15px] leading-relaxed outline-none placeholder:text-sand/30 ${
                   recording ? "text-mint" : "text-sand"
                 }`}
               />
-              {recording && (
-                <span
-                  className="absolute -top-5 left-1 font-mono text-[10px] uppercase tracking-[0.16em] text-mint/50"
-                  aria-hidden
-                >
-                  live caption · sarvam transcribes on stop
-                </span>
-              )}
             </div>
 
             <button
               onClick={() => submit(text)}
               disabled={busy || recording || !text.trim()}
-              className="shrink-0 rounded-xl bg-mint px-5 py-2.5 font-mono text-xs uppercase tracking-widest text-abyss transition hover:bg-sand disabled:opacity-25"
+              className="shrink-0 rounded-xl bg-mint px-5 py-2.5 font-mono text-xs uppercase tracking-widest text-abyss transition hover:bg-sand disabled:cursor-not-allowed disabled:opacity-25"
             >
               Ask
             </button>
+            </div>
           </div>
 
           <div className="flex flex-wrap gap-2">
@@ -256,11 +277,24 @@ export default function Home() {
         </section>
 
         <section className="min-h-[13rem]" aria-live="polite">
-          {micError && <p className="text-sm text-clay">{micError}</p>}
+          {micError && (
+            <div className="rounded-xl border border-clay/25 bg-clay/[0.06] px-4 py-3 text-sm text-clay">
+              {micError}
+            </div>
+          )}
+          {/* Clamped and wrapped. The old version appended "is the API running
+              on :8000?" unconditionally, which is wrong anywhere but local dev,
+              and printed the raw body — so a routing mistake rendered a whole
+              HTML error document into the page. */}
           {failure && (
-            <p className="font-mono text-sm text-clay">
-              {failure} — is the API running on :8000?
-            </p>
+            <div className="rounded-xl border border-clay/25 bg-clay/[0.06] px-4 py-3">
+              <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-clay/70">
+                request failed
+              </p>
+              <p className="mt-1 line-clamp-3 break-words font-mono text-sm text-clay">
+                {failure}
+              </p>
+            </div>
           )}
 
           {busy && (
