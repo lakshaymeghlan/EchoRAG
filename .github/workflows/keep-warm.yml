@@ -1,0 +1,41 @@
+# Keep the serverless function warm.
+#
+# api.py has a _keep_warm loop that re-encodes every 20s, but it only runs while
+# the process is alive — Vercel freezes the instance between requests, so on
+# serverless that loop never executes. Measured cold-path cost: the first
+# request is ~334ms (over the 200ms budget) and it takes about five requests to
+# settle at ~107ms.
+#
+# So the warm-up has to come from outside. This asks a real question rather than
+# hitting /health, because /health returns without touching the encoder or the
+# index and would keep the instance alive while leaving the model cold.
+#
+# 5 minutes is the shortest interval GitHub Actions schedules allow, and they
+# are best-effort — this reduces cold hits, it does not eliminate them. Before
+# recording or demoing, still send one throwaway request by hand.
+
+name: keep-warm
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ask a real question
+        run: |
+          for i in 1 2; do
+            curl -sS --max-time 120 \
+              -X POST https://echorag.vercel.app/api/ask \
+              -F "text=how fast does an eagle travel" \
+              -o response.json -w "attempt $i: HTTP %{http_code} in %{time_total}s\n" || true
+            python3 -c "
+          import json
+          d = json.load(open('response.json'))
+          print(f\"  server pipeline {d['spans']['total']:.1f}ms / budget {d['slo_ms']:.0f}ms\")
+          " || true
+          done

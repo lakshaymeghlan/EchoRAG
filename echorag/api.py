@@ -42,8 +42,15 @@ async def _keep_warm() -> None:
     """Self-ping so the first real request is never the cold one.
 
     That first request is the one a judge makes, so warmth is a feature rather
-    than an optimisation. Self-contained instead of an external cron, so there
-    is one less thing to configure at deploy time.
+    than an optimisation.
+
+    Effective on a long-lived container (Docker, Render). NOT effective on
+    serverless: Vercel freezes the instance between requests, so this loop stops
+    executing and the next visitor still pays the cold path — measured at ~334 ms
+    for the first request against a 200 ms budget, settling to ~107 ms after
+    about five. That case is covered from outside by
+    .github/workflows/keep-warm.yml, which is why the external cron exists
+    despite this loop.
     """
     while True:
         await asyncio.sleep(WARM_INTERVAL_S)
